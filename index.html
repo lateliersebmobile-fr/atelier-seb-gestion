@@ -1122,8 +1122,32 @@ function importData(e){
   reader.onload=function(ev){try{const data=JSON.parse(ev.target.result);for(const k in DEFAULT_DATA){if(!(k in data))data[k]=JSON.parse(JSON.stringify(DEFAULT_DATA[k]));}D=data;saveData();renderPage();toast('Importé');}catch(err){toast('Fichier invalide','error');}};
   reader.readAsText(file);e.target.value='';
 }
+// ═══ ENVOI VERS DISCORD ═══
+const DISCORD_WEBHOOK = 'COLLE TON URL WEBHOOK ICI';
 
-// ═══════════════════════════════════════════════════════════
+async function sendToDiscord(titre, champs) {
+  if (!DISCORD_WEBHOOK || DISCORD_WEBHOOK === 'COLLE TON URL WEBHOOK ICI') return;
+  let description = '';
+  for (const [label, valeur] of Object.entries(champs)) {
+    if (valeur) description += '**' + label + ' :** ' + valeur + '\n';
+  }
+  try {
+    await fetch(DISCORD_WEBHOOK, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'Atelier Séb Mobile',
+        embeds: [{
+          title: titre,
+          description: description,
+          color: 2451587,
+          footer: { text: 'Nouveau contact — ' + new Date().toLocaleString('fr-FR') }
+        }]
+      })
+    });
+  } catch(e) { /* silencieux */ }
+}
+  // ═══════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════
 loadData();
