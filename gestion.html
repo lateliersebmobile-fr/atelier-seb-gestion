@@ -64,11 +64,14 @@ tbody tr:hover{background:var(--hover)}
 @keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
 @keyframes fadeUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
 .fade-up{animation:fadeUp .4s ease both}
+.section{display:none}.section.active{display:block}
 .bar-chart{display:flex;align-items:flex-end;gap:6px;height:160px;padding-top:10px}
 .bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px}
 .bar{width:100%;border-radius:4px 4px 0 0;transition:height .5s ease;min-height:2px}
 .bar-label{font-size:10px;color:var(--muted);white-space:nowrap}
 .bar-val{font-size:10px;color:var(--text);font-weight:600}
+.empty-state{text-align:center;padding:60px 20px;color:var(--muted)}
+.empty-state i{font-size:48px;margin-bottom:16px;opacity:.3}
 .prestation-row,.piece-row{display:grid;grid-template-columns:2fr 1fr 1fr 80px 40px;gap:8px;align-items:end;margin-bottom:8px}
 @media(max-width:768px){.sidebar{width:60px;min-width:60px}.sidebar .logo span,.sidebar nav a span{display:none}.sidebar nav a{justify-content:center;padding:14px}.form-grid{grid-template-columns:1fr}.main{padding:16px}}
 .search-box{position:relative}.search-box i{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:13px}.search-box input{padding-left:36px}
@@ -112,12 +115,18 @@ tbody tr:hover{background:var(--hover)}
 <div class="toast-container" id="toastContainer"></div>
 
 <script>
+// ═══════════════════════════════════════════════════════════
+// COORDONNÉES LIÉVIN + CONFIG GÉOCODAGE
+// ═══════════════════════════════════════════════════════════
 const LIEVIN_LAT = 50.4242;
 const LIEVIN_LNG = 2.7736;
-const ROAD_MULTIPLIER = 1.35;
+const ROAD_MULTIPLIER = 1.35; // distance route ≈ 1.35× distance à vol d'oiseau
 const GEO_CACHE_KEY = 'atelier-seb-geo-cache';
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search';
 
+// ═══════════════════════════════════════════════════════════
+// DONNÉES PAR DÉFAUT
+// ═══════════════════════════════════════════════════════════
 const DEFAULT_DATA = {
   parametres: {
     nom:'Atelier Séb Mobile', proprietaire:'Sébastien DELVALLET', statut:'Micro-entrepreneur',
@@ -235,6 +244,9 @@ const DEFAULT_DATA = {
   nextIds:{client:10,devis:1,intervention:6,sav:3,contact:1}
 };
 
+// ═══════════════════════════════════════════════════════════
+// ÉTAT APPLICATION
+// ═══════════════════════════════════════════════════════════
 const STORE_KEY = 'atelier-seb-mobile-v3';
 let D = {};
 let currentPage = 'dashboard';
@@ -253,6 +265,9 @@ function loadData() {
 }
 function saveData() { try { localStorage.setItem(STORE_KEY, JSON.stringify(D)); } catch(e) { toast('Erreur de sauvegarde','error'); } }
 
+// ═══════════════════════════════════════════════════════════
+// UTILITAIRES
+// ═══════════════════════════════════════════════════════════
 function $(s){return document.querySelector(s)}
 function $$(s){return document.querySelectorAll(s)}
 function fmt(n){return new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(n||0)}
@@ -269,72 +284,122 @@ function stockAlert(p){return p.stock<=p.stockMini}
 function toast(msg,type='success'){
   const c=$('#toastContainer');const t=document.createElement('div');
   t.className='toast toast-'+type;
-  t.innerHTML='<i class="fa-solid fa-'+(type==='success'?'check-circle':type==='error'?'circle-xmark':'circle-info')+'"></i>'+msg;
+  t.innerHTML=`<i class="fa-solid fa-${type==='success'?'check-circle':type==='error'?'circle-xmark':'circle-info'}"></i>${msg}`;
   c.appendChild(t);setTimeout(()=>t.remove(),3500);
 }
-function openModal(html,large){$('#modalContent').className='modal'+(large?' modal-lg':'');$('#modalContent').innerHTML=html;$('#modalOverlay').classList.add('show');}
+function openModal(html,large=false){$('#modalContent').className='modal'+(large?' modal-lg':'');$('#modalContent').innerHTML=html;$('#modalOverlay').classList.add('show');}
 function closeModal(){$('#modalOverlay').classList.remove('show');editingId=null;}
  $('#modalOverlay').addEventListener('click',e=>{if(e.target===$('#modalOverlay'))closeModal();});
 function badgePaiement(p){
   if(!p)return '<span class="badge badge-muted">—</span>';
-  const m={'Espèces':'success','CB':'info','Chèque':'info','Virement':'info','Gratuit':'muted','À encaisser':'warning'};
-  return '<span class="badge badge-'+(m[p]||'muted')+'">'+p+'</span>';
+  const map={'Espèces':'success','CB':'info','Chèque':'info','Virement':'info','Gratuit':'muted','À encaisser':'warning'};
+  return `<span class="badge badge-${map[p]||'muted'}">${p}</span>`;
 }
 function badgeStatut(s){
   if(!s)return '<span class="badge badge-muted">—</span>';
-  const m={'En cours':'warning','Terminé':'success','Annulé':'danger','En attente':'info','Facturé':'success','Envoyé':'info','Confirmé':'warning','Payé':'success','Résolu':'success','Diagnostiqué':'info','Réparé':'success','Refusé':'danger'};
-  return '<span class="badge badge-'+(m[s]||'muted')+'">'+s+'</span>';
+  const map={'En cours':'warning','Terminé':'success','Annulé':'danger','En attente':'info','Facturé':'success','Envoyé':'info','Confirmé':'warning','Payé':'success','Résolu':'success','Diagnostiqué':'info','Réparé':'success','Refusé':'danger'};
+  return `<span class="badge badge-${map[s]||'muted'}">${s}</span>`;
 }
 
-// ═══ GÉOCODAGE & DISTANCE ═══
-function getGeoCache(){try{return JSON.parse(localStorage.getItem(GEO_CACHE_KEY))||{};}catch(e){return {};}}
-function setGeoCache(c){try{localStorage.setItem(GEO_CACHE_KEY,JSON.stringify(c));}catch(e){}}
-
-function haversine(lat1,lon1,lat2,lon2){
-  const R=6371;const dLat=(lat2-lat1)*Math.PI/180;const dLon=(lon2-lon1)*Math.PI/180;
-  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
-  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+// ═══════════════════════════════════════════════════════════
+// GÉOCODAGE & DISTANCE AUTOMATIQUE
+// ═══════════════════════════════════════════════════════════
+function getGeoCache(){
+  try{ return JSON.parse(localStorage.getItem(GEO_CACHE_KEY)) || {}; }catch(e){ return {}; }
+}
+function setGeoCache(cache){
+  try{ localStorage.setItem(GEO_CACHE_KEY, JSON.stringify(cache)); }catch(e){}
 }
 
+// Formule de Haversine : distance à vol d'oiseau en km entre 2 points GPS
+function haversine(lat1, lon1, lat2, lon2){
+  const R = 6371; // rayon Terre en km
+  const dLat = (lat2-lat1)*Math.PI/180;
+  const dLon = (lon2-lon1)*Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+// Normaliser une adresse pour le cache (minuscule, sans espaces multiples)
+function normalizeAddr(a){return (a||'').toLowerCase().replace(/\s+/g,' ').trim();}
+
+// Géocoder une adresse via Nominatim (OpenStreetMap) — gratuit, sans clé
 async function geocodeAddress(adresse){
-  const cache=getGeoCache();const key=(adresse||'').toLowerCase().replace(/\s+/g,' ').trim();
-  if(cache[key]&&cache[key].lat)return{lat:cache[key].lat,lng:cache[key].lng,km:cache[key].km,cached:true};
-  const url=NOMINATIM_URL+'?format=json&limit=1&countrycodes=fr&q='+encodeURIComponent(adresse+', Pas-de-Calais, France');
-  const resp=await fetch(url,{headers:{'User-Agent':'AtelierSebMobile/1.0'}});
-  if(!resp.ok)throw new Error('Erreur réseau ('+resp.status+')');
-  const data=await resp.json();
-  if(!data||data.length===0)throw new Error('Adresse introuvable');
-  const lat=parseFloat(data[0].lat);const lng=parseFloat(data[0].lon);
-  const km=Math.round(haversine(LIEVIN_LAT,LIEVIN_LNG,lat,lng)*ROAD_MULTIPLIER*10)/10;
-  cache[key]={lat,lng,km,date:Date.now()};setGeoCache(cache);
-  return{lat,lng,km,cached:false};
+  const cache = getGeoCache();
+  const key = normalizeAddr(adresse);
+
+  // Vérifier le cache d'abord
+  if(cache[key] && cache[key].lat){
+    return {lat:cache[key].lat, lng:cache[key].lng, km:cache[key].km, cached:true};
+  }
+
+  // Appel Nominatim
+  const url = NOMINATIM_URL + '?format=json&limit=1&countrycodes=fr&q=' + encodeURIComponent(adresse + ', Pas-de-Calais, France');
+  const resp = await fetch(url, {headers:{'User-Agent':'AtelierSebMobile/1.0'}});
+  if(!resp.ok) throw new Error('Erreur réseau Nominatim ('+resp.status+')');
+  const data = await resp.json();
+  if(!data || data.length===0) throw new Error('Adresse introuvable');
+
+  const lat = parseFloat(data[0].lat);
+  const lng = parseFloat(data[0].lon);
+  const distVolOiseau = haversine(LIEVIN_LAT, LIEVIN_LNG, lat, lng);
+  const km = Math.round(distVolOiseau * ROAD_MULTIPLIER * 10) / 10;
+
+  // Mettre en cache
+  cache[key] = {lat, lng, km, date: Date.now()};
+  setGeoCache(cache);
+
+  return {lat, lng, km, cached:false};
 }
 
-function showDistResult(id,r,err){
-  const el=document.getElementById(id);if(!el)return;
-  if(err){el.className='dist-result error';el.innerHTML='<i class="fa-solid fa-circle-xmark"></i><span>'+err+'</span>';}
-  else{el.className='dist-result success';el.innerHTML='<i class="fa-solid fa-route"></i><span><strong>'+r.km+' km</strong> depuis Liévin — '+(r.cached?'(cache)':'(calculé)')+' — Zone : <strong>'+getZone(r.km).nom+'</strong></span>';}
+// Afficher le résultat de distance dans un conteneur
+function showDistResult(containerId, result, error){
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  if(error){
+    el.className='dist-result error';
+    el.innerHTML=`<i class="fa-solid fa-circle-xmark"></i><span>${error}</span>`;
+  } else {
+    el.className='dist-result success';
+    el.innerHTML=`<i class="fa-solid fa-route"></i><span><strong>${result.km} km</strong> estimés depuis Liévin — ${result.cached?'(cache)':'(calculé)'} — Zone : <strong>${getZone(result.km).nom}</strong></span>`;
+  }
 }
 
+// Calcul automatique pour le DEVIS
 async function calcDistanceDevis(){
-  const addr=$('#fDevAddrFull')?.value?.trim();
+  const addr = $('#fDevAddrFull')?.value?.trim();
   if(!addr){showDistResult('devDistResult',null,'Saisis une adresse complète');return;}
-  const el=document.getElementById('devDistResult');
-  if(el){el.className='dist-result';el.innerHTML='<span class="spinner"></span> Calcul en cours...';}
-  try{const r=await geocodeAddress(addr);$('#fDevKm').value=r.km;showDistResult('devDistResult',r,null);calcDevisTotal();}
-  catch(e){showDistResult('devDistResult',null,e.message||'Erreur');}
+  const el = document.getElementById('devDistResult');
+  if(el){el.className='dist-result';el.innerHTML=`<span class="spinner"></span> Calcul en cours...`;}
+  try{
+    const r = await geocodeAddress(addr);
+    $('#fDevKm').value = r.km;
+    showDistResult('devDistResult', r, null);
+    calcDevisTotal();
+  }catch(e){
+    showDistResult('devDistResult', null, e.message || 'Erreur de calcul');
+  }
 }
 
+// Calcul automatique pour l'INTERVENTION
 async function calcDistanceIntervention(){
-  const addr=$('#fIntAddrFull')?.value?.trim();
+  const addr = $('#fIntAddrFull')?.value?.trim();
   if(!addr){showDistResult('intDistResult',null,'Saisis une adresse complète');return;}
-  const el=document.getElementById('intDistResult');
-  if(el){el.className='dist-result';el.innerHTML='<span class="spinner"></span> Calcul en cours...';}
-  try{const r=await geocodeAddress(addr);$('#fIntKm').value=r.km;showDistResult('intDistResult',r,null);calcIntTotal();}
-  catch(e){showDistResult('intDistResult',null,e.message||'Erreur');}
+  const el = document.getElementById('intDistResult');
+  if(el){el.className='dist-result';el.innerHTML=`<span class="spinner"></span> Calcul en cours...`;}
+  try{
+    const r = await geocodeAddress(addr);
+    $('#fIntKm').value = r.km;
+    showDistResult('intDistResult', r, null);
+    calcIntTotal();
+  }catch(e){
+    showDistResult('intDistResult', null, e.message || 'Erreur de calcul');
+  }
 }
 
-// ═══ NAVIGATION ═══
+// ═══════════════════════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════════════════════
 document.querySelectorAll('.sidebar nav a').forEach(a=>{
   a.addEventListener('click',()=>{
     document.querySelectorAll('.sidebar nav a').forEach(x=>x.classList.remove('active'));
@@ -343,45 +408,61 @@ document.querySelectorAll('.sidebar nav a').forEach(a=>{
 });
 function renderPage(){
   const m=$('#mainContent');
-  const pages={dashboard:renderDashboard,clients:renderClients,contact:renderContact,devis:renderDevis,interventions:renderInterventions,sav:renderSAV,catalogue:renderCatalogue,tarifs:renderTarifs,tresorerie:renderTresorerie,parametres:renderParametres};
-  m.innerHTML=(pages[currentPage]||renderDashboard)();
+  switch(currentPage){
+    case 'dashboard':m.innerHTML=renderDashboard();break;
+    case 'clients':m.innerHTML=renderClients();break;
+    case 'contact':m.innerHTML=renderContact();break;
+    case 'devis':m.innerHTML=renderDevis();break;
+    case 'interventions':m.innerHTML=renderInterventions();break;
+    case 'sav':m.innerHTML=renderSAV();break;
+    case 'catalogue':m.innerHTML=renderCatalogue();break;
+    case 'tarifs':m.innerHTML=renderTarifs();break;
+    case 'tresorerie':m.innerHTML=renderTresorerie();break;
+    case 'parametres':m.innerHTML=renderParametres();break;
+  }
 }
-function filterTable(id,q){$$(`#${id} tbody tr`).forEach(tr=>{tr.style.display=tr.textContent.toLowerCase().includes(q.toLowerCase())?'':'none';});}
 
-// ═══ TABLEAU DE BORD ═══
+// ═══════════════════════════════════════════════════════════
+// TABLEAU DE BORD
+// ═══════════════════════════════════════════════════════════
 function renderDashboard(){
-  const nbC=D.clients.length;
-  const ma=new Date().toLocaleDateString('fr-FR',{month:'long'});
-  const mk=D.tresorerie.find(t=>t.mois.toLowerCase()===ma)||D.tresorerie[new Date().getMonth()];
-  const cam=(mk?mk.caMO+mk.caPieces+mk.depl:0);
-  const im=D.interventions.filter(i=>{const d=i.date.split('/');return d.length===3&&parseInt(d[1])===new Date().getMonth()+1;}).length;
-  const sec=D.sav.filter(s=>s.statut==='En cours').length;
-  const pac=D.cataloguePieces.filter(p=>stockAlert(p));
-  const mx=Math.max(...D.tresorerie.map(t=>t.caMO+t.caPieces+t.depl),1);
+  const nbClients=D.clients.length;
+  const moisActuel=new Date().toLocaleDateString('fr-FR',{month:'long'});
+  const moisKey=D.tresorerie.find(t=>t.mois.toLowerCase()===moisActuel)||D.tresorerie[new Date().getMonth()];
+  const caMois=(moisKey?moisKey.caMO+moisKey.caPieces+moisKey.depl:0);
+  const intMois=D.interventions.filter(i=>{const d=i.date.split('/');return d.length===3&&parseInt(d[1])===new Date().getMonth()+1;});
+  const savEnCours=D.sav.filter(s=>s.statut==='En cours').length;
+  const piecesACommander=D.cataloguePieces.filter(p=>stockAlert(p));
+  const maxCA=Math.max(...D.tresorerie.map(t=>t.caMO+t.caPieces+t.depl),1);
   return `<div class="fade-up">
     <h1 style="font-size:24px;font-weight:700;margin-bottom:4px">Tableau de bord</h1>
     <p style="color:var(--muted);font-size:14px;margin-bottom:24px">Vue d'ensemble — ${D.parametres.nom}</p>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px">
-      <div class="kpi"><div style="font-size:12px;color:var(--muted);margin-bottom:8px"><i class="fa-solid fa-users" style="margin-right:6px"></i>Clients</div><div style="font-size:28px;font-weight:700;font-family:'Space Grotesk'">${nbC}</div></div>
-      <div class="kpi"><div style="font-size:12px;color:var(--muted);margin-bottom:8px"><i class="fa-solid fa-euro-sign" style="margin-right:6px"></i>CA ce mois</div><div style="font-size:28px;font-weight:700;font-family:'Space Grotesk';color:${cam>0?'var(--success)':'var(--text)'}">${fmt(cam)}</div></div>
-      <div class="kpi"><div style="font-size:12px;color:var(--muted);margin-bottom:8px"><i class="fa-solid fa-wrench" style="margin-right:6px"></i>Interventions</div><div style="font-size:28px;font-weight:700;font-family:'Space Grotesk'">${im}</div></div>
-      <div class="kpi"><div style="font-size:12px;color:var(--muted);margin-bottom:8px"><i class="fa-solid fa-rotate" style="margin-right:6px"></i>SAV en cours</div><div style="font-size:28px;font-weight:700;font-family:'Space Grotesk';color:${sec>0?'var(--accent)':'var(--text)'}">${sec}</div></div>
+      <div class="kpi"><div style="font-size:12px;color:var(--muted);margin-bottom:8px"><i class="fa-solid fa-users" style="margin-right:6px"></i>Clients</div><div style="font-size:28px;font-weight:700;font-family:'Space Grotesk'">${nbClients}</div></div>
+      <div class="kpi"><div style="font-size:12px;color:var(--muted);margin-bottom:8px"><i class="fa-solid fa-euro-sign" style="margin-right:6px"></i>CA ce mois</div><div style="font-size:28px;font-weight:700;font-family:'Space Grotesk';color:${caMois>0?'var(--success)':'var(--text)'}">${fmt(caMois)}</div></div>
+      <div class="kpi"><div style="font-size:12px;color:var(--muted);margin-bottom:8px"><i class="fa-solid fa-wrench" style="margin-right:6px"></i>Interventions mois</div><div style="font-size:28px;font-weight:700;font-family:'Space Grotesk'">${intMois.length}</div></div>
+      <div class="kpi"><div style="font-size:12px;color:var(--muted);margin-bottom:8px"><i class="fa-solid fa-rotate" style="margin-right:6px"></i>SAV en cours</div><div style="font-size:28px;font-weight:700;font-family:'Space Grotesk';color:${savEnCours>0?'var(--accent)':'var(--text)'}">${savEnCours}</div></div>
     </div>
     <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:24px">
       <div class="card"><h3 style="font-size:15px;margin-bottom:16px"><i class="fa-solid fa-chart-bar" style="color:var(--accent);margin-right:8px"></i>CA mensuel 2026</h3>
-        <div class="bar-chart">${D.tresorerie.map(t=>{const v=t.caMO+t.caPieces+t.depl;const h=Math.max(v/mx*140,2);return `<div class="bar-col"><div class="bar-val">${v>0?fmt(v):''}</div><div class="bar" style="height:${h}px;background:${v>=D.parametres.seuilRentabilite?'var(--success)':'var(--accent)'}"></div><div class="bar-label">${t.mois.substring(0,3)}</div></div>`;}).join('')}</div>
+        <div class="bar-chart">${D.tresorerie.map(t=>{const v=t.caMO+t.caPieces+t.depl;const h=Math.max(v/maxCA*140,2);const obj=D.parametres.seuilRentabilite;return `<div class="bar-col"><div class="bar-val">${v>0?fmt(v):''}</div><div class="bar" style="height:${h}px;background:${v>=obj?'var(--success)':'var(--accent)'}"></div><div class="bar-label">${t.mois.substring(0,3)}</div></div>`;}).join('')}</div>
       </div>
       <div class="card"><h3 style="font-size:15px;margin-bottom:16px"><i class="fa-solid fa-triangle-exclamation" style="color:var(--danger);margin-right:8px"></i>Stock bas</h3>
-        ${pac.length===0?'<p style="color:var(--muted);font-size:13px">Tout est en stock</p>':pac.slice(0,6).map(p=>'<div class="stock-alert" style="margin-bottom:6px"><i class="fa-solid fa-circle-exclamation"></i><span><strong>'+p.ref+'</strong> '+p.nom+' — '+p.stock+'/'+p.stockMini+'</span></div>').join('')}
+        ${piecesACommander.length===0?'<p style="color:var(--muted);font-size:13px">Tout est en stock</p>':
+        piecesACommander.slice(0,6).map(p=>`<div class="stock-alert" style="margin-bottom:6px"><i class="fa-solid fa-circle-exclamation"></i><span><strong>${p.ref}</strong> ${p.nom} — ${p.stock}/${p.stockMini}</span></div>`).join('')}
       </div>
     </div>
     <div class="card"><h3 style="font-size:15px;margin-bottom:16px"><i class="fa-solid fa-clock-rotate-left" style="color:var(--info);margin-right:8px"></i>Dernières interventions</h3>
-      ${D.interventions.length===0?'<p style="color:var(--muted);font-size:13px">Aucune intervention</p>':`<div style="overflow-x:auto"><table><thead><tr><th>N°</th><th>Date</th><th>Client</th><th>Total TTC</th><th>Paiement</th></tr></thead><tbody>
-      ${D.interventions.slice(-5).reverse().map(i=>'<tr><td style="font-weight:600">'+i.numero+'</td><td>'+i.date+'</td><td>'+i.client+'</td><td style="font-weight:600">'+fmt(i.totalTTC)+'</td><td>'+badgePaiement(i.paiement)+'</td></tr>').join('')}
-      </tbody></table></div>`}</div></div>`;
+      ${D.interventions.length===0?'<p style="color:var(--muted);font-size:13px">Aucune intervention enregistrée</p>':`
+      <div style="overflow-x:auto"><table><thead><tr><th>N°</th><th>Date</th><th>Client</th><th>Total TTC</th><th>Paiement</th></tr></thead><tbody>
+      ${D.interventions.slice(-5).reverse().map(i=>`<tr><td style="font-weight:600">${i.numero}</td><td>${i.date}</td><td>${i.client}</td><td style="font-weight:600">${fmt(i.totalTTC)}</td><td>${badgePaiement(i.paiement)}</td></tr>`).join('')}
+      </tbody></table></div>`}</div>
+  </div>`;
 }
 
-// ═══ CLIENTS ═══
+// ═══════════════════════════════════════════════════════════
+// CLIENTS
+// ═══════════════════════════════════════════════════════════
 function renderClients(){
   return `<div class="fade-up">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px">
@@ -395,24 +476,28 @@ function renderClients(){
       <td><button class="btn btn-secondary btn-sm" onclick="openClientForm('${c.id}')"><i class="fa-solid fa-pen"></i></button><button class="btn btn-danger btn-sm" onclick="deleteItem('clients','id','${c.id}','Client')" style="margin-left:4px"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}
       </tbody></table></div></div></div>`;
 }
+function filterTable(id,q){$$(`#${id} tbody tr`).forEach(tr=>{tr.style.display=tr.textContent.toLowerCase().includes(q.toLowerCase())?'':'none';});}
+
 function openClientForm(id){
   const c=id?getClientById(id):{id:'',nom:'',tel:'',adresse:'',typeVelo:'',avis:0,notes:''};
-  openModal(`<h3>${id?'Modifier':'Nouveau client'}</h3><div class="form-grid">
-    <div class="form-group"><label>N° Client</label><input id="fCliId" value="${c.id}" ${id?'readonly style="opacity:.6"':''}></div>
-    <div class="form-group"><label>Nom Prénom</label><input id="fCliNom" value="${c.nom}"></div>
-    <div class="form-group"><label>Téléphone</label><input id="fCliTel" value="${c.tel}"></div>
-    <div class="form-group"><label>Adresse complète</label><input id="fCliAddr" value="${c.adresse}" placeholder="ex: 15 rue Victor Hugo, Lens, 62300"><div class="addr-hint">Format complet recommandé pour le calcul de distance</div></div>
-    <div class="form-group"><label>Type vélo</label><select id="fCliVelo"><option value="">—</option>${['VTT','VAE','Route','Ville','Enfant','Cargo','BMX','Gravel'].map(v=>'<option value="'+v+'" '+(c.typeVelo===v?'selected':'')+'>'+v+'</option>').join('')}</select></div>
-    <div class="form-group"><label>Avis (1-5)</label><input id="fCliAvis" type="number" min="1" max="5" value="${c.avis||''}"></div>
-    <div class="form-group full"><label>Notes</label><textarea id="fCliNotes" rows="2">${c.notes||''}</textarea></div>
-    </div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+  openModal(`<h3>${id?'Modifier le client':'Nouveau client'}</h3>
+    <div class="form-grid">
+      <div class="form-group"><label>N° Client</label><input id="fCliId" value="${c.id}" ${id?'readonly style="opacity:.6"':''}></div>
+      <div class="form-group"><label>Nom Prénom</label><input id="fCliNom" value="${c.nom}"></div>
+      <div class="form-group"><label>Téléphone</label><input id="fCliTel" value="${c.tel}"></div>
+      <div class="form-group"><label>Adresse complète</label><input id="fCliAddr" value="${c.adresse}" placeholder="ex: 15 rue Victor Hugo, Lens, 62300"><div class="addr-hint">Format recommandé pour le calcul de distance automatique</div></div>
+      <div class="form-group"><label>Type vélo</label><select id="fCliVelo"><option value="">—</option>${['VTT','VAE','Route','Ville','Enfant','Cargo','BMX','Gravel'].map(v=>`<option value="${v}" ${c.typeVelo===v?'selected':''}>${v}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Avis (1-5)</label><input id="fCliAvis" type="number" min="1" max="5" value="${c.avis||''}"></div>
+      <div class="form-group full"><label>Notes</label><textarea id="fCliNotes" rows="2">${c.notes||''}</textarea></div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
     <button class="btn btn-primary" onclick="saveClient('${id||''}')">${id?'Enregistrer':'Ajouter'}</button></div>`);
 }
 function saveClient(id){
   const nom=$('#fCliNom').value.trim();if(!nom){toast('Nom obligatoire','error');return;}
   if(id){const c=getClientById(id);if(!c)return;c.nom=nom;c.tel=$('#fCliTel').value.trim();c.adresse=$('#fCliAddr').value.trim();c.typeVelo=$('#fCliVelo').value;c.avis=parseInt($('#fCliAvis').value)||0;c.notes=$('#fCliNotes').value.trim();toast('Client modifié');}
-  else{let ci=$('#fCliId').value.trim();if(!ci)ci=genId('ASM-CLI-',nextId('client'));if(D.clients.find(c=>c.id===ci)){toast('Numéro existant','error');return;}
-  D.clients.push({id:ci,nom,tel:$('#fCliTel').value.trim(),adresse:$('#fCliAddr').value.trim(),typeVelo:$('#fCliVelo').value,date1erContact:today(),nbInter:0,caTotal:0,rappelRevision:'',avis:parseInt($('#fCliAvis').value)||0,notes:$('#fCliNotes').value.trim()});toast('Client ajouté');}
+  else{let cliId=$('#fCliId').value.trim();if(!cliId)cliId=genId('ASM-CLI-',nextId('client'));if(D.clients.find(c=>c.id===cliId)){toast('Numéro existant','error');return;}
+  D.clients.push({id:cliId,nom,tel:$('#fCliTel').value.trim(),adresse:$('#fCliAddr').value.trim(),typeVelo:$('#fCliVelo').value,date1erContact:today(),nbInter:0,caTotal:0,rappelRevision:'',avis:parseInt($('#fCliAvis').value)||0,notes:$('#fCliNotes').value.trim()});toast('Client ajouté');}
   saveData();closeModal();renderPage();
 }
 function deleteItem(arr,key,val,label){
@@ -421,7 +506,9 @@ function deleteItem(arr,key,val,label){
   <button class="btn btn-danger" onclick="D['${arr}']=D['${arr}'].filter(x=>x['${key}']!=='${val}');saveData();closeModal();renderPage();toast('Supprimé')">Supprimer</button></div>`);
 }
 
-// ═══ PRISE DE CONTACT ═══
+// ═══════════════════════════════════════════════════════════
+// PRISE DE CONTACT
+// ═══════════════════════════════════════════════════════════
 function renderContact(){
   return `<div class="fade-up">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px">
@@ -433,42 +520,46 @@ function renderContact(){
       ${D.prisesContact.map(c=>`<tr><td>${c.date}</td><td>${c.nom}</td><td>${c.tel||'—'}</td><td><span class="badge badge-info">${c.typeVelo||'—'}</span></td>
       <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.probleme||'—'}</td><td>${c.source||'—'}</td><td>${badgeStatut(c.statut)}</td>
       <td><button class="btn btn-secondary btn-sm" onclick="openContactForm('${c.id}')"><i class="fa-solid fa-pen"></i></button>
-      ${c.statut!=='Réparé'?'<button class="btn btn-success btn-sm" onclick="convertContact(\''+c.id+'\')" style="margin-left:4px" title="Créer client"><i class="fa-solid fa-user-plus"></i></button>':''}
-      <button class="btn btn-danger btn-sm" onclick="deleteItem(\'prisesContact\',\'id\',\''+c.id+'\',\'Contact\')" style="margin-left:4px"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}
+      ${c.statut!=='Réparé'?`<button class="btn btn-success btn-sm" onclick="convertContact('${c.id}')" style="margin-left:4px" title="Créer client"><i class="fa-solid fa-user-plus"></i></button>`:''}
+      <button class="btn btn-danger btn-sm" onclick="deleteItem('prisesContact','id','${c.id}','Contact')" style="margin-left:4px"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}
       ${D.prisesContact.length===0?'<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--muted)">Aucun contact</td></tr>':''}
       </tbody></table></div></div></div>`;
 }
 function openContactForm(id){
   const c=id?D.prisesContact.find(x=>x.id===id):{id:'',date:today(),nom:'',tel:'',adresse:'',typeVelo:'',probleme:'',source:'',statut:'Nouveau'};
-  openModal(`<h3>${id?'Modifier':'Nouveau contact'}</h3><div class="form-grid">
-    <div class="form-group"><label>Date</label><input id="fCtcDate" type="date" value="${c.date?c.date.split('/').reverse().join('-'):''}"></div>
-    <div class="form-group"><label>Nom</label><input id="fCtcNom" value="${c.nom}"></div>
-    <div class="form-group"><label>Téléphone</label><input id="fCtcTel" value="${c.tel||''}"></div>
-    <div class="form-group"><label>Adresse</label><input id="fCtcAddr" value="${c.adresse||''}" placeholder="ex: 15 rue Victor Hugo, Lens, 62300"></div>
-    <div class="form-group"><label>Type vélo</label><select id="fCtcVelo"><option value="">—</option>${['VTT','VAE','Route','Ville','Enfant'].map(v=>'<option value="'+v+'" '+(c.typeVelo===v?'selected':'')+'>'+v+'</option>').join('')}</select></div>
-    <div class="form-group"><label>Source</label><select id="fCtcSrc"><option value="">—</option>${['Facebook','Flyer','Bouche à oreille','Google','Instagram','Autre'].map(v=>'<option value="'+v+'" '+(c.source===v?'selected':'')+'>'+v+'</option>').join('')}</select></div>
-    <div class="form-group"><label>Statut</label><select id="fCtcStatut">${['Nouveau','Devis envoyé','RDV fixé','Réparé','Annulé'].map(v=>'<option value="'+v+'" '+(c.statut===v?'selected':'')+'>'+v+'</option>').join('')}</select></div>
-    <div class="form-group full"><label>Problème</label><textarea id="fCtcPb" rows="3">${c.probleme||''}</textarea></div>
-    </div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+  openModal(`<h3>${id?'Modifier':'Nouvelle prise de contact'}</h3>
+    <div class="form-grid">
+      <div class="form-group"><label>Date</label><input id="fCtcDate" type="date" value="${c.date?c.date.split('/').reverse().join('-'):''}"></div>
+      <div class="form-group"><label>Nom</label><input id="fCtcNom" value="${c.nom}"></div>
+      <div class="form-group"><label>Téléphone</label><input id="fCtcTel" value="${c.tel||''}"></div>
+      <div class="form-group"><label>Adresse</label><input id="fCtcAddr" value="${c.adresse||''}" placeholder="ex: 15 rue Victor Hugo, Lens, 62300"></div>
+      <div class="form-group"><label>Type vélo</label><select id="fCtcVelo"><option value="">—</option>${['VTT','VAE','Route','Ville','Enfant'].map(v=>`<option value="${v}" ${c.typeVelo===v?'selected':''}>${v}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Source</label><select id="fCtcSrc"><option value="">—</option>${['Facebook','Flyer','Bouche à oreille','Google','Instagram','Autre'].map(v=>`<option value="${v}" ${c.source===v?'selected':''}>${v}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Statut</label><select id="fCtcStatut">${['Nouveau','Devis envoyé','RDV fixé','Réparé','Annulé'].map(v=>`<option value="${v}" ${c.statut===v?'selected':''}>${v}</option>`).join('')}</select></div>
+      <div class="form-group full"><label>Problème</label><textarea id="fCtcPb" rows="3">${c.probleme||''}</textarea></div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
     <button class="btn btn-primary" onclick="saveContact('${id||''}')">${id?'Enregistrer':'Ajouter'}</button></div>`);
 }
 function saveContact(id){
   const nom=$('#fCtcNom').value.trim();if(!nom){toast('Nom obligatoire','error');return;}
   const dv=$('#fCtcDate').value;const date=dv?dv.split('-').reverse().join('/'):today();
   const obj={date,nom,tel:$('#fCtcTel').value.trim(),adresse:$('#fCtcAddr').value.trim(),typeVelo:$('#fCtcVelo').value,probleme:$('#fCtcPb').value.trim(),source:$('#fCtcSrc').value,statut:$('#fCtcStatut').value};
-  if(id){const c=D.prisesContact.find(x=>x.id===id);if(c)Object.assign(c,obj);toast('Modifié');}
-  else{obj.id=genId('CTC-',nextId('contact'));D.prisesContact.push(obj);toast('Ajouté');}
+  if(id){const c=D.prisesContact.find(x=>x.id===id);if(c)Object.assign(c,obj);toast('Contact modifié');}
+  else{obj.id=genId('CTC-',nextId('contact'));D.prisesContact.push(obj);toast('Contact ajouté');}
   saveData();closeModal();renderPage();
 }
 function convertContact(id){
   const c=D.prisesContact.find(x=>x.id===id);if(!c)return;
   if(D.clients.find(cl=>cl.nom.toLowerCase()===c.nom.toLowerCase())){toast('Client existe déjà','error');return;}
-  const ci=genId('ASM-CLI-',nextId('client'));
-  D.clients.push({id:ci,nom:c.nom,tel:c.tel,adresse:c.adresse,typeVelo:c.typeVelo,date1erContact:c.date,nbInter:0,caTotal:0,rappelRevision:'',avis:0,notes:'Problème: '+c.probleme});
-  c.statut='RDV fixé';saveData();renderPage();toast('Client créé : '+ci);
+  const cliId=genId('ASM-CLI-',nextId('client'));
+  D.clients.push({id:cliId,nom:c.nom,tel:c.tel,adresse:c.adresse,typeVelo:c.typeVelo,date1erContact:c.date,nbInter:0,caTotal:0,rappelRevision:'',avis:0,notes:'Problème: '+c.probleme});
+  c.statut='RDV fixé';saveData();renderPage();toast('Client créé : '+cliId);
 }
 
-// ═══ DEVIS ═══
+// ═══════════════════════════════════════════════════════════
+// DEVIS (AVEC CALCUL DISTANCE AUTO)
+// ═══════════════════════════════════════════════════════════
 function renderDevis(){
   return `<div class="fade-up">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px">
@@ -486,43 +577,56 @@ function renderDevis(){
       ${D.devis.length===0?'<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--muted)">Aucun devis</td></tr>':''}
       </tbody></table></div></div></div>`;
 }
+
 function openDevisForm(id){
   const d=id?D.devis.find(x=>x.id===id):{id:'',date:today(),numeroClient:'',nomClient:'',tel:'',adresse:'',adresseFull:'',zone:'',codeService:'',km:0,totalTTC:0,statut:'Envoyé',dateRDV:'',notes:''};
-  openModal(`<h3>${id?'Modifier':'Nouveau devis'}</h3><div class="form-grid">
-    <div class="form-group"><label>N° Client</label><input id="fDevCli" value="${d.numeroClient}" oninput="autofillDevisClient()" placeholder="ASM-CLI-003"></div>
-    <div class="form-group"><label>Date</label><input id="fDevDate" type="date" value="${d.date?d.date.split('/').reverse().join('-'):''}"></div>
-    <div class="form-group"><label>Nom (auto)</label><input id="fDevNom" value="${d.nomClient}" readonly style="opacity:.7"></div>
-    <div class="form-group"><label>Téléphone (auto)</label><input id="fDevTel" value="${d.tel}" readonly style="opacity:.7"></div>
-    <div class="form-group full"><label>Adresse complète du client</label><input id="fDevAddrFull" value="${d.adresseFull||d.adresse||''}" placeholder="ex: 115 Rue Camille Desmoulins, 62680 Méricourt">
-      <div class="addr-hint">Saisis l'adresse complète pour le calcul automatique. Format : Numéro Rue, Ville, Code postal</div></div>
-    <div class="form-group"><label>Distance (km)</label>
-      <div style="display:flex;gap:6px"><input id="fDevKm" type="number" value="${d.km||0}" min="0" step="0.1" oninput="calcDevisTotal()" style="flex:1">
-      <button class="btn btn-info btn-sm" onclick="calcDistanceDevis()" style="white-space:nowrap"><i class="fa-solid fa-route"></i> Calculer</button></div>
-      <div id="devDistResult"></div></div>
-    <div class="form-group"><label>Zone (auto)</label><input id="fDevZone" value="${d.zone}" readonly style="opacity:.7"></div>
-    <div class="form-group"><label>Service</label><select id="fDevService" onchange="calcDevisTotal()">
-      <option value="">— Choisir —</option>${D.grilleTarifaire.filter(t=>t.code!=='REM').map(t=>'<option value="'+t.code+'" '+(d.codeService===t.code?'selected':'')+'>'+t.code+' — '+t.nom+' ('+t.prix+'€)</option>').join('')}</select></div>
-    <div class="form-group"><label>Total TTC</label><input id="fDevTotal" value="${fmt(d.totalTTC)}" readonly style="opacity:.7;font-weight:700;font-size:16px;color:var(--accent)"></div>
-    <div class="form-group"><label>Statut</label><select id="fDevStatut">${['Envoyé','Confirmé','Payé','Annulé'].map(v=>'<option value="'+v+'" '+(d.statut===v?'selected':'')+'>'+v+'</option>').join('')}</select></div>
-    <div class="form-group"><label>Date RDV</label><input id="fDevRDV" type="date" value="${d.dateRDV?d.dateRDV.split('/').reverse().join('-'):''}"></div>
-    <div class="form-group full"><label>Notes</label><textarea id="fDevNotes" rows="2">${d.notes||''}</textarea></div>
-    </div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+  openModal(`<h3>${id?'Modifier le devis':'Nouveau devis'}</h3>
+    <div class="form-grid">
+      <div class="form-group"><label>N° Client</label><input id="fDevCli" value="${d.numeroClient}" oninput="autofillDevisClient()" placeholder="ASM-CLI-003"></div>
+      <div class="form-group"><label>Date</label><input id="fDevDate" type="date" value="${d.date?d.date.split('/').reverse().join('-'):''}"></div>
+      <div class="form-group"><label>Nom (auto)</label><input id="fDevNom" value="${d.nomClient}" readonly style="opacity:.7"></div>
+      <div class="form-group"><label>Téléphone (auto)</label><input id="fDevTel" value="${d.tel}" readonly style="opacity:.7"></div>
+      <div class="form-group full"><label>Adresse complète du client</label><input id="fDevAddrFull" value="${d.adresseFull||d.adresse||''}" placeholder="ex: 115 Rue Camille Desmoulins, 62680 Méricourt">
+        <div class="addr-hint">Saisis l'adresse complète pour un calcul automatique de la distance. Format : Numéro Rue, Ville, Code postal</div>
+      </div>
+      <div class="form-group"><label>Distance (km)</label>
+        <div style="display:flex;gap:6px"><input id="fDevKm" type="number" value="${d.km||0}" min="0" step="0.1" oninput="calcDevisTotal()" style="flex:1">
+        <button class="btn btn-info btn-sm" onclick="calcDistanceDevis()" title="Calculer automatiquement" style="white-space:nowrap"><i class="fa-solid fa-route"></i> Calculer</button></div>
+        <div id="devDistResult"></div>
+      </div>
+      <div class="form-group"><label>Zone (auto)</label><input id="fDevZone" value="${d.zone}" readonly style="opacity:.7"></div>
+      <div class="form-group"><label>Service</label><select id="fDevService" onchange="calcDevisTotal()">
+        <option value="">— Choisir —</option>${D.grilleTarifaire.filter(t=>t.code!=='REM').map(t=>`<option value="${t.code}" ${d.codeService===t.code?'selected':''}>${t.code} — ${t.nom} (${t.prix}€)</option>`).join('')}
+      </select></div>
+      <div class="form-group"><label>Total TTC</label><input id="fDevTotal" value="${fmt(d.totalTTC)}" readonly style="opacity:.7;font-weight:700;font-size:16px;color:var(--accent)"></div>
+      <div class="form-group"><label>Statut</label><select id="fDevStatut">${['Envoyé','Confirmé','Payé','Annulé'].map(v=>`<option value="${v}" ${d.statut===v?'selected':''}>${v}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Date RDV</label><input id="fDevRDV" type="date" value="${d.dateRDV?d.dateRDV.split('/').reverse().join('-'):''}"></div>
+      <div class="form-group full"><label>Notes</label><textarea id="fDevNotes" rows="2">${d.notes||''}</textarea></div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
     <button class="btn btn-primary" onclick="saveDevis('${id||''}')">${id?'Enregistrer':'Créer'}</button></div>`);
   setTimeout(calcDevisTotal,50);
 }
+
 function autofillDevisClient(){
   const cid=$('#fDevCli').value.trim();const c=getClientById(cid);
-  if(c){$('#fDevNom').value=c.nom;$('#fDevTel').value=c.tel;$('#fDevAddrFull').value=c.adresse||'';}
-  else{$('#fDevNom').value='';$('#fDevTel').value='';$('#fDevAddrFull').value='';}
+  if(c){$('#fDevNom').value=c.nom;$('#fDevTel').value=c.tel;
+    // Pré-remplir l'adresse complète pour le calcul de distance
+    const addrFull = c.adresse || '';
+    $('#fDevAddrFull').value = addrFull;
+  } else {$('#fDevNom').value='';$('#fDevTel').value='';$('#fDevAddrFull').value='';}
   calcDevisTotal();
 }
+
 function calcDevisTotal(){
   const code=$('#fDevService').value;const km=parseFloat($('#fDevKm').value)||0;
   const t=getTarifByCode(code);let prixMO=t?t.prix:0;
   const zone=getZone(km);$('#fDevZone').value=zone.nom+' — '+zone.desc;
-  const frais=getFraisDeplacement(km,prixMO);const total=Math.max(prixMO+frais,D.parametres.minFacturation||0);
+  const frais=getFraisDeplacement(km,prixMO);
+  const total=Math.max(prixMO+frais,D.parametres.minFacturation||0);
   $('#fDevTotal').value=fmt(total);
 }
+
 function saveDevis(id){
   const cliId=$('#fDevCli').value.trim();if(!cliId){toast('N° client obligatoire','error');return;}
   const code=$('#fDevService').value;const t=getTarifByCode(code);
@@ -531,17 +635,37 @@ function saveDevis(id){
   const dv=$('#fDevDate').value;const date=dv?dv.split('-').reverse().join('/'):today();
   const drv=$('#fDevRDV').value;const dateRDV=drv?drv.split('-').reverse().join('/'):'';
   const obj={date,numeroClient:cliId,nomClient:$('#fDevNom').value,tel:$('#fDevTel').value,adresse:$('#fDevAddrFull').value,adresseFull:$('#fDevAddrFull').value,km,zone:$('#fDevZone').value,codeService:code,tarifHT:prixMO,deplacement:frais,totalTTC:total,statut:$('#fDevStatut').value,dateRDV,notes:$('#fDevNotes').value.trim()};
-  if(id){const d=D.devis.find(x=>x.id===id);if(d)Object.assign(d,obj);toast('Modifié');}
-  else{obj.id=genId('DEV-',nextId('devis'));obj.numero=obj.id;D.devis.push(obj);toast('Créé');}
+  if(id){const d=D.devis.find(x=>x.id===id);if(d)Object.assign(d,obj);toast('Devis modifié');}
+  else{obj.id=genId('DEV-',nextId('devis'));obj.numero=obj.id;D.devis.push(obj);toast('Devis créé');}
   saveData();closeModal();renderPage();
 }
+
 function printDevis(id){
-  const d=D.devis.find(x=>x.id===id);if(!d)return;const t=getTarifByCode(d.codeService);const p=D.parametres;const w=window.open('','_blank');
-  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Devis '+d.numero+'</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;padding:40px;color:#222;max-width:700px;margin:auto}h1{font-size:20px;margin-bottom:4px}h2{font-size:14px;color:#666;margin-bottom:20px}table{width:100%;border-collapse:collapse;margin:16px 0}th,td{border:1px solid #ddd;padding:8px 12px;text-align:left;font-size:13px}th{background:#f5f5f5}.total{font-size:18px;font-weight:700;text-align:right;margin-top:12px}.footer{margin-top:40px;font-size:11px;color:#999;border-top:1px solid #ddd;padding-top:12px}.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:30px}</style></head><body><div class="header"><div><h1>'+p.nom+'</h1><h2>'+p.proprietaire+' — '+p.statut+'</h2><p style="font-size:12px">'+p.adresse+' — '+p.zone+'<br>Tél : '+p.telephone+' — '+p.email+'</p></div><div style="text-align:right"><h1 style="color:#d97706">DEVIS</h1><p style="font-size:14px;font-weight:700">'+d.numero+'</p><p style="font-size:12px;color:#666">'+d.date+'</p></div></div><table><tr><th>Client</th><td>'+d.nomClient+'</td><th>Téléphone</th><td>'+d.tel+'</td></tr><tr><th>Adresse</th><td colspan="3">'+(d.adresseFull||d.adresse||'—')+'</td></tr></table><table><thead><tr><th>Prestation</th><th>Détail</th><th style="text-align:right">Prix</th></tr></thead><tbody><tr><td>'+(t?t.nom:d.codeService)+'</td><td>'+(t?t.accroche:'')+'</td><td style="text-align:right">'+fmt(d.tarifHT)+'</td></tr><tr><td>Déplacement ('+d.zone+')</td><td>'+d.km+' km</td><td style="text-align:right">'+fmt(d.deplacement)+'</td></tr></tbody></table><div class="total">Total TTC : '+fmt(d.totalTTC)+'</div><p style="margin-top:16px;font-size:12px">Statut : <strong>'+d.statut+'</strong>'+(d.dateRDV?' — RDV : '+d.dateRDV:'')+'</p>'+(d.notes?'<p style="margin-top:8px;font-size:12px;color:#666">Notes : '+d.notes+'</p>':'')+'<div class="footer">Devis valable '+p.validiteDevis+' jours — '+p.nom+' — SIRET : '+p.siret+'<br>Garantie MO : '+p.garantieMO+' mois — Pièces : '+p.garantiePieces+' ans</div></body></html>');
+  const d=D.devis.find(x=>x.id===id);if(!d)return;const t=getTarifByCode(d.codeService);const p=D.parametres;
+  const w=window.open('','_blank');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Devis ${d.numero}</title>
+  <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;padding:40px;color:#222;max-width:700px;margin:auto}
+  h1{font-size:20px;margin-bottom:4px}h2{font-size:14px;color:#666;margin-bottom:20px}
+  table{width:100%;border-collapse:collapse;margin:16px 0}th,td{border:1px solid #ddd;padding:8px 12px;text-align:left;font-size:13px}th{background:#f5f5f5}
+  .total{font-size:18px;font-weight:700;text-align:right;margin-top:12px}.footer{margin-top:40px;font-size:11px;color:#999;border-top:1px solid #ddd;padding-top:12px}
+  .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:30px}</style></head><body>
+  <div class="header"><div><h1>${p.nom}</h1><h2>${p.proprietaire} — ${p.statut}</h2><p style="font-size:12px">${p.adresse} — ${p.zone}<br>Tél : ${p.telephone} — ${p.email}</p></div>
+  <div style="text-align:right"><h1 style="color:#d97706">DEVIS</h1><p style="font-size:14px;font-weight:700">${d.numero}</p><p style="font-size:12px;color:#666">${d.date}</p></div></div>
+  <table><tr><th>Client</th><td>${d.nomClient}</td><th>Téléphone</th><td>${d.tel}</td></tr>
+  <tr><th>Adresse</th><td colspan="3">${d.adresseFull||d.adresse||'—'}</td></tr></table>
+  <table><thead><tr><th>Prestation</th><th>Détail</th><th style="text-align:right">Prix</th></tr></thead><tbody>
+  <tr><td>${t?t.nom:d.codeService}</td><td>${t?t.accroche:''}</td><td style="text-align:right">${fmt(d.tarifHT)}</td></tr>
+  <tr><td>Déplacement (${d.zone})</td><td>${d.km} km</td><td style="text-align:right">${fmt(d.deplacement)}</td></tr></tbody></table>
+  <div class="total">Total TTC : ${fmt(d.totalTTC)}</div>
+  <p style="margin-top:16px;font-size:12px">Statut : <strong>${d.statut}</strong>${d.dateRDV?' — RDV : '+d.dateRDV:''}</p>
+  ${d.notes?'<p style="margin-top:8px;font-size:12px;color:#666">Notes : '+d.notes+'</p>':''}
+  <div class="footer">Devis valable ${p.validiteDevis} jours — ${p.nom} — SIRET : ${p.siret}<br>Garantie MO : ${p.garantieMO} mois — Pièces : ${p.garantiePieces} ans</div></body></html>`);
   w.document.close();w.print();
 }
 
-// ═══ INTERVENTIONS ═══
+// ═══════════════════════════════════════════════════════════
+// INTERVENTIONS (AVEC CALCUL DISTANCE AUTO)
+// ═══════════════════════════════════════════════════════════
 function renderInterventions(){
   return `<div class="fade-up">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px">
@@ -560,55 +684,80 @@ function renderInterventions(){
       ${D.interventions.length===0?'<tr><td colspan="11" style="text-align:center;padding:40px;color:var(--muted)">Aucune intervention</td></tr>':''}
       </tbody></table></div></div></div>`;
 }
+
 function openInterventionForm(id){
   const i=id?D.interventions.find(x=>x.id===id):{id:'',date:today(),numero:'',client:'',clientId:'',telephone:'',adresse:'',adresseFull:'',zone:'',typeVelo:'',marque:'',km:0,prestations:[],pieces:[],totalMO:0,totalPieces:0,deplacement:0,totalTTC:0,paiement:'Espèces',note:''};
-  tempPrestations=id?[...i.prestations]:[];tempPieces=id?[...i.pieces]:[];
-  const co=D.clients.map(c=>'<option value="'+c.id+'" '+(i.clientId===c.id?'selected':'')+'>'+c.id+' — '+c.nom+'</option>').join('');
-  openModal(`<h3>${id?'Intervention '+i.numero:'Nouvelle intervention'}</h3><div class="form-grid">
-    <div class="form-group"><label>N° Intervention</label><input id="fIntNum" value="${i.numero||genId('INT-',nextId('intervention'))}" ${id?'readonly style="opacity:.6"':''}></div>
-    <div class="form-group"><label>Date</label><input id="fIntDate" type="date" value="${i.date?i.date.split('/').reverse().join('-'):''}"></div>
-    <div class="form-group"><label>Client</label><select id="fIntCli" onchange="autofillIntClient()"><option value="">— Sélectionner —</option>${co}</select></div>
-    <div class="form-group"><label>Téléphone (auto)</label><input id="fIntTel" value="${i.telephone}" readonly style="opacity:.7"></div>
-    <div class="form-group full"><label>Adresse complète</label><input id="fIntAddrFull" value="${i.adresseFull||i.adresse||''}" placeholder="ex: 115 Rue Camille Desmoulins, 62680 Méricourt">
-      <div class="addr-hint">Saisis l'adresse complète puis clique "Calculer"</div></div>
-    <div class="form-group"><label>Distance (km)</label>
-      <div style="display:flex;gap:6px"><input id="fIntKm" type="number" value="${i.km||0}" min="0" step="0.1" oninput="calcIntTotal()" style="flex:1">
-      <button class="btn btn-info btn-sm" onclick="calcDistanceIntervention()" style="white-space:nowrap"><i class="fa-solid fa-route"></i> Calculer</button></div>
-      <div id="intDistResult"></div></div>
-    <div class="form-group"><label>Type vélo</label><input id="fIntVelo" value="${i.typeVelo||''}"></div>
-    <div class="form-group"><label>Marque</label><input id="fIntMarque" value="${i.marque||''}"></div>
+  tempPrestations=id?[...i.prestations]:[];
+  tempPieces=id?[...i.pieces]:[];
+  const clientOpts=D.clients.map(c=>`<option value="${c.id}" ${i.clientId===c.id?'selected':''}>${c.id} — ${c.nom}</option>`).join('');
+  openModal(`<h3>${id?'Intervention '+i.numero:'Nouvelle intervention'}</h3>
+    <div class="form-grid">
+      <div class="form-group"><label>N° Intervention</label><input id="fIntNum" value="${i.numero||genId('INT-',nextId('intervention'))}" ${id?'readonly style="opacity:.6"':''}></div>
+      <div class="form-group"><label>Date</label><input id="fIntDate" type="date" value="${i.date?i.date.split('/').reverse().join('-'):''}"></div>
+      <div class="form-group"><label>Client</label><select id="fIntCli" onchange="autofillIntClient()"><option value="">— Sélectionner —</option>${clientOpts}</select></div>
+      <div class="form-group"><label>Téléphone (auto)</label><input id="fIntTel" value="${i.telephone}" readonly style="opacity:.7"></div>
+      <div class="form-group full"><label>Adresse complète du client</label><input id="fIntAddrFull" value="${i.adresseFull||i.adresse||''}" placeholder="ex: 115 Rue Camille Desmoulins, 62680 Méricourt">
+        <div class="addr-hint">Saisis l'adresse complète puis clique "Calculer" pour obtenir la distance automatiquement</div>
+      </div>
+      <div class="form-group"><label>Distance (km)</label>
+        <div style="display:flex;gap:6px"><input id="fIntKm" type="number" value="${i.km||0}" min="0" step="0.1" oninput="calcIntTotal()" style="flex:1">
+        <button class="btn btn-info btn-sm" onclick="calcDistanceIntervention()" title="Calculer automatiquement" style="white-space:nowrap"><i class="fa-solid fa-route"></i> Calculer</button></div>
+        <div id="intDistResult"></div>
+      </div>
+      <div class="form-group"><label>Type vélo</label><input id="fIntVelo" value="${i.typeVelo||''}"></div>
+      <div class="form-group"><label>Marque</label><input id="fIntMarque" value="${i.marque||''}"></div>
     </div>
     <h4 style="margin:20px 0 12px;font-size:14px;color:var(--accent)"><i class="fa-solid fa-wrench" style="margin-right:6px"></i>Prestations (MO)</h4>
     <div id="intPrestations">${renderIntPrestations()}</div>
     <button class="btn btn-secondary btn-sm" onclick="addIntPrestation()" style="margin-top:8px"><i class="fa-solid fa-plus"></i> Ajouter</button>
-    <h4 style="margin:20px 0 12px;font-size:14px;color:var(--success)"><i class="fa-solid fa-cog" style="margin-right:6px"></i>Pièces</h4>
+    <h4 style="margin:20px 0 12px;font-size:14px;color:var(--success)"><i class="fa-solid fa-cog" style="margin-right:6px"></i>Pièces détachées</h4>
     <div id="intPieces">${renderIntPieces()}</div>
     <button class="btn btn-secondary btn-sm" onclick="addIntPiece()" style="margin-top:8px"><i class="fa-solid fa-plus"></i> Ajouter</button>
     <div style="margin-top:20px;padding:16px;background:var(--bg);border-radius:10px">
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;text-align:right;font-size:13px">
-        <div><span style="color:var(--muted)">MO</span><div id="intSubMO" style="font-weight:700;font-size:16px">${fmt(0)}</div></div>
-        <div><span style="color:var(--muted)">Pièces</span><div id="intSubPieces" style="font-weight:700;font-size:16px">${fmt(0)}</div></div>
+        <div><span style="color:var(--muted)">Sous-total MO</span><div id="intSubMO" style="font-weight:700;font-size:16px">${fmt(0)}</div></div>
+        <div><span style="color:var(--muted)">Sous-total Pièces</span><div id="intSubPieces" style="font-weight:700;font-size:16px">${fmt(0)}</div></div>
         <div><span style="color:var(--muted)">Déplacement</span><div id="intSubDepl" style="font-weight:700;font-size:16px">${fmt(0)}</div></div>
         <div><span style="color:var(--accent)">TOTAL TTC</span><div id="intTotalTTC" style="font-weight:700;font-size:20px;color:var(--accent)">${fmt(0)}</div></div>
-      </div></div>
+      </div>
+    </div>
     <div class="form-grid" style="margin-top:16px">
-    <div class="form-group"><label>Paiement</label><select id="fIntPaie">${['Espèces','CB','Chèque','Virement','Gratuit','À encaisser'].map(v=>'<option value="'+v+'" '+(i.paiement===v?'selected':'')+'>'+v+'</option>').join('')}</select></div>
-    <div class="form-group"><label>Note</label><input id="fIntNote" value="${i.note||''}"></div></div>
+      <div class="form-group"><label>Paiement</label><select id="fIntPaie">${['Espèces','CB','Chèque','Virement','Gratuit','À encaisser'].map(v=>`<option value="${v}" ${i.paiement===v?'selected':''}>${v}</option>`).join('')}</select></div>
+      <div class="form-group"><label>Note</label><input id="fIntNote" value="${i.note||''}"></div>
+    </div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
-    <button class="btn btn-primary" onclick="saveIntervention('${id||''}')">Enregistrer</button></div>`,true);
+    <button class="btn btn-primary" onclick="saveIntervention('${id||''}')">${id?'Enregistrer':'Enregistrer'}</button></div>`,true);
   setTimeout(calcIntTotal,50);
 }
+
 function autofillIntClient(){
   const cid=$('#fIntCli').value;const c=getClientById(cid);
   if(c){$('#fIntTel').value=c.tel;$('#fIntAddrFull').value=c.adresse||'';$('#fIntVelo').value=c.typeVelo||'';}
   else{$('#fIntTel').value='';$('#fIntAddrFull').value='';$('#fIntVelo').value='';}
   calcIntTotal();
 }
+
 function renderIntPrestations(){
-  return tempPrestations.map((p,i)=>'<div class="prestation-row"><select onchange="tempPrestations['+i+'].code=this.value;calcIntTotal()" style="font-size:12px"><option value="">— Code —</option>'+D.grilleTarifaire.filter(t=>t.code!=='REM').map(t=>'<option value="'+t.code+'" '+(p.code===t.code?'selected':'')+'>'+t.code+' — '+t.nom+'</option>').join('')+'</select><input value="'+(p.detail||'')+'" placeholder="Détail" onchange="tempPrestations['+i+'].detail=this.value" style="font-size:12px"><input type="number" value="'+(p.qte||1)+'" min="1" onchange="tempPrestations['+i+'].qte=parseInt(this.value)||1;calcIntTotal()" style="font-size:12px"><input value="'+fmt(p.prixUnit||0)+'" readonly style="font-size:12px;opacity:.7"><button class="btn btn-danger btn-sm" onclick="tempPrestations.splice('+i+',1);document.getElementById(\'intPrestations\').innerHTML=renderIntPrestations();calcIntTotal()" style="padding:4px 8px"><i class="fa-solid fa-times"></i></button></div>').join('');
+  return tempPrestations.map((p,i)=>`<div class="prestation-row">
+    <select onchange="tempPrestations[${i}].code=this.value;calcIntTotal()" style="font-size:12px">
+      <option value="">— Code —</option>${D.grilleTarifaire.filter(t=>t.code!=='REM').map(t=>`<option value="${t.code}" ${p.code===t.code?'selected':''}>${t.code} — ${t.nom}</option>`).join('')}
+    </select>
+    <input value="${p.detail||''}" placeholder="Détail" onchange="tempPrestations[${i}].detail=this.value" style="font-size:12px">
+    <input type="number" value="${p.qte||1}" min="1" onchange="tempPrestations[${i}].qte=parseInt(this.value)||1;calcIntTotal()" style="font-size:12px">
+    <input value="${fmt(p.prixUnit||0)}" readonly style="font-size:12px;opacity:.7">
+    <button class="btn btn-danger btn-sm" onclick="tempPrestations.splice(${i},1);document.getElementById('intPrestations').innerHTML=renderIntPrestations();calcIntTotal()" style="padding:4px 8px"><i class="fa-solid fa-times"></i></button>
+  </div>`).join('');
 }
 function renderIntPieces(){
-  return tempPieces.map((p,i)=>'<div class="piece-row"><select onchange="tempPieces['+i+'].ref=this.value;autofillIntPiece('+i+')" style="font-size:12px"><option value="">— Réf —</option>'+D.cataloguePieces.map(pc=>'<option value="'+pc.ref+'" '+(p.ref===pc.ref?'selected':'')+'>'+pc.ref+' — '+pc.nom+'</option>').join('')+'</select><input value="'+(p.marque||'')+'" readonly placeholder="Marque" style="font-size:12px;opacity:.7"><input type="number" value="'+(p.qte||1)+'" min="1" onchange="tempPieces['+i+'].qte=parseInt(this.value)||1;calcIntTotal()" style="font-size:12px"><input value="'+fmt(p.prixUnit||0)+'" readonly style="font-size:12px;opacity:.7"><button class="btn btn-danger btn-sm" onclick="tempPieces.splice('+i+',1);document.getElementById(\'intPieces\').innerHTML=renderIntPieces();calcIntTotal()" style="padding:4px 8px"><i class="fa-solid fa-times"></i></button></div>').join('');
+  return tempPieces.map((p,i)=>`<div class="piece-row">
+    <select onchange="tempPieces[${i}].ref=this.value;autofillIntPiece(${i})" style="font-size:12px">
+      <option value="">— Réf —</option>${D.cataloguePieces.map(pc=>`<option value="${pc.ref}" ${p.ref===pc.ref?'selected':''}>${pc.ref} — ${pc.nom}</option>`).join('')}
+    </select>
+    <input value="${p.marque||''}" readonly placeholder="Marque" style="font-size:12px;opacity:.7">
+    <input type="number" value="${p.qte||1}" min="1" onchange="tempPieces[${i}].qte=parseInt(this.value)||1;calcIntTotal()" style="font-size:12px">
+    <input value="${fmt(p.prixUnit||0)}" readonly style="font-size:12px;opacity:.7">
+    <button class="btn btn-danger btn-sm" onclick="tempPieces.splice(${i},1);document.getElementById('intPieces').innerHTML=renderIntPieces();calcIntTotal()" style="padding:4px 8px"><i class="fa-solid fa-times"></i></button>
+  </div>`).join('');
 }
 function autofillIntPiece(i){
   const pc=getPieceByRef(tempPieces[i].ref);
@@ -618,12 +767,14 @@ function autofillIntPiece(i){
 }
 function addIntPrestation(){tempPrestations.push({code:'',detail:'',qte:1,prixUnit:0});document.getElementById('intPrestations').innerHTML=renderIntPrestations();}
 function addIntPiece(){tempPieces.push({ref:'',nom:'',marque:'',qte:1,prixUnit:0});document.getElementById('intPieces').innerHTML=renderIntPieces();}
+
 function calcIntTotal(){
   let mo=0,pieces=0;
   tempPrestations.forEach(p=>{const t=getTarifByCode(p.code);p.prixUnit=t?t.prix:0;mo+=p.prixUnit*(p.qte||1);});
   tempPieces.forEach(p=>{pieces+=p.prixUnit*(p.qte||1);});
   const km=parseFloat($('#fIntKm')?.value)||0;
-  const frais=getFraisDeplacement(km,mo+pieces);const total=Math.max(mo+pieces+frais,D.parametres.minFacturation||0);
+  const frais=getFraisDeplacement(km,mo+pieces);
+  const total=Math.max(mo+pieces+frais,D.parametres.minFacturation||0);
   if($('#intSubMO'))$('#intSubMO').textContent=fmt(mo);
   if($('#intSubPieces'))$('#intSubPieces').textContent=fmt(pieces);
   if($('#intSubDepl'))$('#intSubDepl').textContent=fmt(frais);
@@ -631,10 +782,12 @@ function calcIntTotal(){
   tempPrestations.forEach((p,i)=>{const rows=document.querySelectorAll('.prestation-row');if(rows[i])rows[i].querySelectorAll('input')[1].value=fmt(p.prixUnit);});
   tempPieces.forEach((p,i)=>{const rows=document.querySelectorAll('.piece-row');if(rows[i])rows[i].querySelectorAll('input')[2].value=fmt(p.prixUnit);});
 }
+
 function saveIntervention(id){
   const num=$('#fIntNum').value.trim();if(!num){toast('N° obligatoire','error');return;}
   const dv=$('#fIntDate').value;const date=dv?dv.split('-').reverse().join('/'):today();
-  const km=parseFloat($('#fIntKm').value)||0;let mo=0,pieces=0;
+  const km=parseFloat($('#fIntKm').value)||0;
+  let mo=0,pieces=0;
   tempPrestations.forEach(p=>{const t=getTarifByCode(p.code);p.prixUnit=t?t.prix:0;mo+=p.prixUnit*(p.qte||1);});
   tempPieces.forEach(p=>{pieces+=p.prixUnit*(p.qte||1);});
   const frais=getFraisDeplacement(km,mo+pieces);const total=Math.max(mo+pieces+frais,D.parametres.minFacturation||0);
@@ -643,23 +796,47 @@ function saveIntervention(id){
   if(!id){tempPieces.forEach(p=>{const pc=getPieceByRef(p.ref);if(pc)pc.stock=Math.max(0,pc.stock-(p.qte||1));});}
   const cli=getClientById(obj.clientId);
   if(cli&&!id){cli.nbInter=(cli.nbInter||0)+1;cli.caTotal=(cli.caTotal||0)+total;}
-  const moisNoms=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
-  const mn=date.split('/').length===3?moisNoms[parseInt(date.split('/')[1])-1]:'';
-  if(mn&&!id){const m=D.tresorerie.find(t=>t.mois===mn);if(m){m.caMO+=mo;m.caPieces+=pieces;m.depl+=frais;}}
-  if(id){const old=D.interventions.find(x=>x.id===id);if(old)Object.assign(old,obj);toast('Modifié');}
-  else{obj.id=num;D.interventions.push(obj);toast('Enregistrée');}
+  const moisNom=date.split('/').length===3?['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'][parseInt(date.split('/')[1])-1]:'';
+  if(moisNom&&!id){const m=D.tresorerie.find(t=>t.mois===moisNom);if(m){m.caMO+=mo;m.caPieces+=pieces;m.depl+=frais;}}
+  if(id){const old=D.interventions.find(x=>x.id===id);if(old)Object.assign(old,obj);toast('Intervention modifiée');}
+  else{obj.id=num;D.interventions.push(obj);toast('Intervention enregistrée');}
   saveData();closeModal();renderPage();
 }
+
 function printIntervention(id){
   const i=D.interventions.find(x=>x.id===id);if(!i)return;const p=D.parametres;
-  const pR=i.prestations.map((pr,idx)=>{const t=getTarifByCode(pr.code);return '<tr><td>'+(idx+1)+'</td><td>'+(pr.code||'')+'</td><td>'+(t?t.nom:'')+'</td><td>'+(pr.detail||'')+'</td><td style="text-align:center">'+(pr.qte||1)+'</td><td style="text-align:right">'+fmt(pr.prixUnit)+'</td><td style="text-align:right;font-weight:600">'+fmt(pr.prixUnit*(pr.qte||1))+'</td></tr>';}).join('');
-  const pcR=i.pieces.map((pc,idx)=>'<tr><td>'+(idx+1)+'</td><td>'+(pc.ref||'')+'</td><td>'+(pc.nom||'')+'</td><td>'+(pc.marque||'')+'</td><td style="text-align:center">'+(pc.qte||1)+'</td><td style="text-align:right">'+fmt(pc.prixUnit)+'</td><td style="text-align:right;font-weight:600">'+fmt(pc.prixUnit*(pc.qte||1))+'</td></tr>').join('');
+  const pRows=i.prestations.map((pr,idx)=>{const t=getTarifByCode(pr.code);return `<tr><td>${idx+1}</td><td>${pr.code||''}</td><td>${t?t.nom:''}</td><td>${pr.detail||''}</td><td style="text-align:center">${pr.qte||1}</td><td style="text-align:right">${fmt(pr.prixUnit)}</td><td style="text-align:right;font-weight:600">${fmt(pr.prixUnit*(pr.qte||1))}</td></tr>`;}).join('');
+  const pcRows=i.pieces.map((pc,idx)=>`<tr><td>${idx+1}</td><td>${pc.ref||''}</td><td>${pc.nom||''}</td><td>${pc.marque||''}</td><td style="text-align:center">${pc.qte||1}</td><td style="text-align:right">${fmt(pc.prixUnit)}</td><td style="text-align:right;font-weight:600">${fmt(pc.prixUnit*(pc.qte||1))}</td></tr>`).join('');
   const w=window.open('','_blank');
-  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Bon '+i.numero+'</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;padding:30px;color:#222;max-width:750px;margin:auto;font-size:13px}h1{font-size:18px}.sub{font-size:11px;color:#666;margin-bottom:20px}table{width:100%;border-collapse:collapse;margin:10px 0}th,td{border:1px solid #ccc;padding:6px 10px;text-align:left;font-size:12px}th{background:#f8f8f8;font-size:11px;text-transform:uppercase}.total-row td{font-weight:700;font-size:15px;background:#f0f0f0}.grand-total{font-size:20px;text-align:right;margin:12px 0;color:#d97706}.sig{display:flex;justify-content:space-between;margin-top:60px}.sig-line{border-top:1px solid #333;margin-top:50px;width:200px;text-align:center;font-size:11px;padding-top:4px}.header{display:flex;justify-content:space-between;border-bottom:2px solid #d97706;padding-bottom:12px;margin-bottom:16px}.footer{margin-top:30px;font-size:10px;color:#999;border-top:1px solid #ddd;padding-top:8px}</style></head><body><div class="header"><div><h1>'+p.nom+'</h1><div class="sub">'+p.proprietaire+' — '+p.statut+'<br>'+p.adresse+' — '+p.zone+'<br>Tél : '+p.telephone+'</div></div><div style="text-align:right"><h1 style="color:#d97706">BON D\'INTERVENTION</h1><div class="sub">'+i.numero+' — '+i.date+'</div></div></div><table><tr><th>Client</th><td>'+i.client+'</td><th>Téléphone</th><td>'+(i.telephone||'—')+'</td></tr><tr><th>Adresse</th><td>'+(i.adresseFull||i.adresse||'—')+'</td><th>Zone</th><td>'+i.zone+' ('+i.km+' km)</td></tr><tr><th>Type vélo</th><td>'+(i.typeVelo||'—')+'</td><th>Marque</th><td>'+(i.marque||'—')+'</td></tr></table><h3 style="margin:16px 0 8px;font-size:13px;color:#d97706">PRESTATIONS (Main d\'œuvre)</h3><table><thead><tr><th>#</th><th>Code</th><th>Prestation</th><th>Détail</th><th style="text-align:center">Qté</th><th style="text-align:right">Prix unit.</th><th style="text-align:right">Total</th></tr></thead><tbody>'+pR+(pR?'<tr class="total-row"><td colspan="6" style="text-align:right">Sous-total MO</td><td style="text-align:right">'+fmt(i.totalMO)+'</td></tr>':'')+'</tbody></table><h3 style="margin:16px 0 8px;font-size:13px;color:#10b981">PIÈCES DÉTACHÉES</h3><table><thead><tr><th>#</th><th>Réf.</th><th>Désignation</th><th>Marque</th><th style="text-align:center">Qté</th><th style="text-align:right">Prix unit.</th><th style="text-align:right">Total</th></tr></thead><tbody>'+pcR+(pcR?'<tr class="total-row"><td colspan="6" style="text-align:right">Sous-total Pièces</td><td style="text-align:right">'+fmt(i.totalPieces)+'</td></tr>':'')+'</tbody></table><table><tr><td>Frais déplacement ('+i.km+' km)</td><td style="text-align:right">'+fmt(i.deplacement)+'</td></tr></table><div class="grand-total">TOTAL TTC : '+fmt(i.totalTTC)+'</div><p style="font-size:11px">Paiement : <strong>'+(i.paiement||'—')+'</strong> — Garantie MO : '+p.garantieMO+' mois — Pièces : '+p.garantiePieces+' ans</p><div class="sig"><div class="sig-line">Prestataire</div><div class="sig-line">Client (Lu et approuvé)</div></div><div class="footer">SIRET : '+p.siret+' — TVA non applicable, art. 293B du CGI</div></body></html>');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Bon ${i.numero}</title>
+  <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;padding:30px;color:#222;max-width:750px;margin:auto;font-size:13px}
+  h1{font-size:18px;margin-bottom:2px}.sub{font-size:11px;color:#666;margin-bottom:20px}
+  table{width:100%;border-collapse:collapse;margin:10px 0}th,td{border:1px solid #ccc;padding:6px 10px;text-align:left;font-size:12px}th{background:#f8f8f8;font-size:11px;text-transform:uppercase}
+  .total-row td{font-weight:700;font-size:15px;background:#f0f0f0}.grand-total{font-size:20px;text-align:right;margin:12px 0;color:#d97706}
+  .sig{display:flex;justify-content:space-between;margin-top:60px}.sig-line{border-top:1px solid #333;margin-top:50px;width:200px;text-align:center;font-size:11px;padding-top:4px}
+  .header{display:flex;justify-content:space-between;border-bottom:2px solid #d97706;padding-bottom:12px;margin-bottom:16px}.footer{margin-top:30px;font-size:10px;color:#999;border-top:1px solid #ddd;padding-top:8px}</style></head><body>
+  <div class="header"><div><h1>${p.nom}</h1><div class="sub">${p.proprietaire} — ${p.statut}<br>${p.adresse} — ${p.zone}<br>Tél : ${p.telephone}</div></div>
+  <div style="text-align:right"><h1 style="color:#d97706">BON D'INTERVENTION</h1><div class="sub">${i.numero} — ${i.date}</div></div></div>
+  <table><tr><th>Client</th><td>${i.client}</td><th>Téléphone</th><td>${i.telephone||'—'}</td></tr>
+  <tr><th>Adresse</th><td>${i.adresseFull||i.adresse||'—'}</td><th>Zone</th><td>${i.zone} (${i.km} km)</td></tr>
+  <tr><th>Type vélo</th><td>${i.typeVelo||'—'}</td><th>Marque</th><td>${i.marque||'—'}</td></tr></table>
+  <h3 style="margin:16px 0 8px;font-size:13px;color:#d97706">PRESTATIONS (Main d'œuvre)</h3>
+  <table><thead><tr><th>#</th><th>Code</th><th>Prestation</th><th>Détail</th><th style="text-align:center">Qté</th><th style="text-align:right">Prix unit.</th><th style="text-align:right">Total</th></tr></thead><tbody>${pRows}
+  ${pRows?`<tr class="total-row"><td colspan="6" style="text-align:right">Sous-total MO</td><td style="text-align:right">${fmt(i.totalMO)}</td></tr>`:''}</tbody></table>
+  <h3 style="margin:16px 0 8px;font-size:13px;color:#10b981">PIÈCES DÉTACHÉES</h3>
+  <table><thead><tr><th>#</th><th>Réf.</th><th>Désignation</th><th>Marque</th><th style="text-align:center">Qté</th><th style="text-align:right">Prix unit.</th><th style="text-align:right">Total</th></tr></thead><tbody>${pcRows}
+  ${pcRows?`<tr class="total-row"><td colspan="6" style="text-align:right">Sous-total Pièces</td><td style="text-align:right">${fmt(i.totalPieces)}</td></tr>`:''}</tbody></table>
+  <table><tr><td>Frais déplacement (${i.km} km)</td><td style="text-align:right">${fmt(i.deplacement)}</td></tr></table>
+  <div class="grand-total">TOTAL TTC : ${fmt(i.totalTTC)}</div>
+  <p style="font-size:11px">Paiement : <strong>${i.paiement||'—'}</strong> — Garantie MO : ${p.garantieMO} mois — Pièces : ${p.garantiePieces} ans</p>
+  <div class="sig"><div class="sig-line">Signature Prestataire</div><div class="sig-line">Signature Client (Lu et approuvé)</div></div>
+  <div class="footer">SIRET : ${p.siret} — TVA non applicable, art. 293B du CGI</div></body></html>`);
   w.document.close();w.print();
 }
 
-// ═══ SAV ═══
+// ═══════════════════════════════════════════════════════════
+// SAV
+// ═══════════════════════════════════════════════════════════
 function renderSAV(){
   return `<div class="fade-up">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:12px">
@@ -667,10 +844,10 @@ function renderSAV(){
       <button class="btn btn-primary" onclick="openSAVForm()"><i class="fa-solid fa-plus"></i> Nouveau dossier</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto;max-height:calc(100vh - 180px);overflow-y:auto">
-      <table><thead><tr><th>N°</th><th>Date</th><th>Client</th><th>Facture</th><th>Motif</th><th>Garantie</th><th>Statut</th><th>Actions</th></tr></thead><tbody>
+      <table><thead><tr><th>N°</th><th>Date</th><th>Client</th><th>N° Facture</th><th>Motif</th><th>Garantie</th><th>Statut</th><th>Actions</th></tr></thead><tbody>
       ${D.sav.map(s=>`<tr><td style="font-weight:600;color:var(--accent)">${s.id}</td><td>${s.dateOuverture}</td><td>${s.nomClient}</td>
         <td>${s.numFacture||'—'}</td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.motifRetour||'—'}</td>
-        <td>${s.priseGarantie?'<span class="badge badge-'+(s.priseGarantie==='oui'?'success':'danger')+'">'+s.priseGarantie+'</span>':'<span class="badge badge-muted">—</span>'}</td>
+        <td>${s.priseGarantie?`<span class="badge badge-${s.priseGarantie==='oui'?'success':'danger'}">${s.priseGarantie}</span>`:'<span class="badge badge-muted">—</span>'}</td>
         <td>${badgeStatut(s.statut)}</td>
         <td><button class="btn btn-secondary btn-sm" onclick="openSAVForm('${s.id}')"><i class="fa-solid fa-pen"></i></button>
         <button class="btn btn-success btn-sm" onclick="printSAV('${s.id}')" style="margin-left:4px"><i class="fa-solid fa-print"></i></button>
@@ -680,19 +857,21 @@ function renderSAV(){
 }
 function openSAVForm(id){
   const s=id?D.sav.find(x=>x.id===id):{id:genId('SAV-',nextId('sav')),dateOuverture:today(),nomClient:'',nouveauClient:false,telephone:'',email:'',numFacture:'',motifRetour:'',priseGarantie:'',statut:'En cours',diagnostic:'',notes:''};
-  openModal(`<h3>${id?'Dossier '+s.id:'Nouveau SAV'}</h3><div class="form-grid">
-    <div class="form-group"><label>N° Dossier</label><input id="fSavId" value="${s.id}" ${id?'readonly style="opacity:.6"':''}></div>
-    <div class="form-group"><label>Date</label><input id="fSavDate" type="date" value="${s.dateOuverture?s.dateOuverture.split('/').reverse().join('-'):''}"></div>
-    <div class="form-group"><label>Client</label><input id="fSavNom" value="${s.nomClient}"></div>
-    <div class="form-group"><label>Téléphone</label><input id="fSavTel" value="${s.telephone}"></div>
-    <div class="form-group"><label>Email</label><input id="fSavEmail" value="${s.email}"></div>
-    <div class="form-group"><label>N° Facture</label><input id="fSavFact" value="${s.numFacture}"></div>
-    <div class="form-group"><label>Garantie</label><select id="fSavGar"><option value="">—</option><option value="oui" ${s.priseGarantie==='oui'?'selected':''}>Oui</option><option value="non" ${s.priseGarantie==='non'?'selected':''}>Non</option><option value="en cours" ${s.priseGarantie==='en cours'?'selected':''}>En cours</option></select></div>
-    <div class="form-group"><label>Statut</label><select id="fSavStatut">${['En cours','En attente pièce','Diagnostiqué','Réparé','Résolu','Refusé','Annulé'].map(v=>'<option value="'+v+'" '+(s.statut===v?'selected':'')+'>'+v+'</option>').join('')}</select></div>
-    <div class="form-group full"><label>Motif</label><textarea id="fSavMotif" rows="2">${s.motifRetour||''}</textarea></div>
-    <div class="form-group full"><label>Diagnostic</label><textarea id="fSavDiag" rows="2">${s.diagnostic||''}</textarea></div>
-    <div class="form-group full"><label>Notes</label><textarea id="fSavNotes" rows="2">${s.notes||''}</textarea></div>
-    </div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+  openModal(`<h3>${id?'Dossier '+s.id:'Nouveau dossier SAV'}</h3>
+    <div class="form-grid">
+      <div class="form-group"><label>N° Dossier</label><input id="fSavId" value="${s.id}" ${id?'readonly style="opacity:.6"':''}></div>
+      <div class="form-group"><label>Date</label><input id="fSavDate" type="date" value="${s.dateOuverture?s.dateOuverture.split('/').reverse().join('-'):''}"></div>
+      <div class="form-group"><label>Client</label><input id="fSavNom" value="${s.nomClient}"></div>
+      <div class="form-group"><label>Téléphone</label><input id="fSavTel" value="${s.telephone}"></div>
+      <div class="form-group"><label>Email</label><input id="fSavEmail" value="${s.email}"></div>
+      <div class="form-group"><label>N° Facture origine</label><input id="fSavFact" value="${s.numFacture}"></div>
+      <div class="form-group"><label>Garantie</label><select id="fSavGar"><option value="">—</option><option value="oui" ${s.priseGarantie==='oui'?'selected':''}>Oui</option><option value="non" ${s.priseGarantie==='non'?'selected':''}>Non</option><option value="en cours" ${s.priseGarantie==='en cours'?'selected':''}>En cours</option></select></div>
+      <div class="form-group"><label>Statut</label><select id="fSavStatut">${['En cours','En attente pièce','Diagnostiqué','Réparé','Résolu','Refusé','Annulé'].map(v=>`<option value="${v}" ${s.statut===v?'selected':''}>${v}</option>`).join('')}</select></div>
+      <div class="form-group full"><label>Motif du retour</label><textarea id="fSavMotif" rows="2">${s.motifRetour||''}</textarea></div>
+      <div class="form-group full"><label>Diagnostic</label><textarea id="fSavDiag" rows="2">${s.diagnostic||''}</textarea></div>
+      <div class="form-group full"><label>Notes</label><textarea id="fSavNotes" rows="2">${s.notes||''}</textarea></div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
     <button class="btn btn-primary" onclick="saveSAV('${id||''}')">${id?'Enregistrer':'Créer'}</button></div>`);
 }
 function saveSAV(id){
@@ -700,16 +879,36 @@ function saveSAV(id){
   const dv=$('#fSavDate').value;const date=dv?dv.split('-').reverse().join('/'):today();
   const obj={id:id||$('#fSavId').value.trim(),dateOuverture:date,nomClient:nom,nouveauClient:false,telephone:$('#fSavTel').value.trim(),email:$('#fSavEmail').value.trim(),numFacture:$('#fSavFact').value.trim(),motifRetour:$('#fSavMotif').value.trim(),priseGarantie:$('#fSavGar').value,statut:$('#fSavStatut').value,diagnostic:$('#fSavDiag').value.trim(),notes:$('#fSavNotes').value.trim()};
   if(id){const s=D.sav.find(x=>x.id===id);if(s)Object.assign(s,obj);toast('Modifié');}
-  else{D.sav.push(obj);toast('Créé');}
+  else{D.sav.push(obj);toast('Dossier créé');}
   saveData();closeModal();renderPage();
 }
 function printSAV(id){
   const s=D.sav.find(x=>x.id===id);if(!s)return;const p=D.parametres;const w=window.open('','_blank');
-  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>SAV '+s.id+'</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;padding:40px;color:#222;max-width:650px;margin:auto;font-size:13px}h1{font-size:16px}h2{font-size:13px;color:#d97706;margin:20px 0 10px}table{width:100%;border-collapse:collapse;margin:8px 0}th,td{border:1px solid #ccc;padding:8px 12px;text-align:left;font-size:12px}th{background:#f5f5f5;width:40%}.sig{display:flex;justify-content:space-between;margin-top:60px}.sig-line{border-top:1px solid #333;margin-top:50px;width:200px;text-align:center;font-size:11px;padding-top:4px}.footer{margin-top:30px;font-size:10px;color:#999;border-top:1px solid #ddd;padding-top:8px}</style></head><body><div style="text-align:center;border-bottom:2px solid #d97706;padding-bottom:12px;margin-bottom:20px"><h1>'+p.nom+'</h1><p style="font-size:11px;color:#666">'+p.proprietaire+' — '+p.adresse+' — Tél : '+p.telephone+'</p><h1 style="color:#d97706;margin-top:8px">FICHE SAV</h1></div><table><tr><th>N° SAV</th><td>'+s.id+'</td><th>Date</th><td>'+s.dateOuverture+'</td></tr></table><h2>Client & Matériel</h2><table><tr><th>Client</th><td>'+s.nomClient+'</td><th>Tél</th><td>'+(s.telephone||'—')+'</td></tr><tr><th>Email</th><td colspan="3">'+(s.email||'—')+'</td></tr><tr><th>N° Facture</th><td colspan="3">'+(s.numFacture||'Introuvable')+'</td></tr></table><h2>Problème</h2><p style="padding:12px;background:#f9f9f9;border-radius:6px;min-height:40px">'+(s.motifRetour||'—')+'</p><h2>Diagnostic</h2><table><tr><th>Garantie</th><td>'+(s.priseGarantie||'—')+'</td><th>Statut</th><td>'+(s.statut||'—')+'</td></tr></table><p style="margin-top:8px;font-size:12px"><strong>Diagnostic :</strong> '+(s.diagnostic||'À remplir')+'</p>'+(s.notes?'<p style="margin-top:8px;font-size:12px"><strong>Notes :</strong> '+s.notes+'</p>':'')+'<div class="sig"><div class="sig-line">Technicien</div><div class="sig-line">Client (Accord)</div></div><div class="footer">SIRET : '+p.siret+' — TVA non applicable, art. 293B du CGI</div></body></html>');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>SAV ${s.id}</title>
+  <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Arial,sans-serif;padding:40px;color:#222;max-width:650px;margin:auto;font-size:13px}
+  h1{font-size:16px}h2{font-size:13px;color:#d97706;margin:20px 0 10px}table{width:100%;border-collapse:collapse;margin:8px 0}th,td{border:1px solid #ccc;padding:8px 12px;text-align:left;font-size:12px}th{background:#f5f5f5;width:40%}
+  .sig{display:flex;justify-content:space-between;margin-top:60px}.sig-line{border-top:1px solid #333;margin-top:50px;width:200px;text-align:center;font-size:11px;padding-top:4px}
+  .footer{margin-top:30px;font-size:10px;color:#999;border-top:1px solid #ddd;padding-top:8px}</style></head><body>
+  <div style="text-align:center;border-bottom:2px solid #d97706;padding-bottom:12px;margin-bottom:20px">
+  <h1>${p.nom}</h1><p style="font-size:11px;color:#666">${p.proprietaire} — ${p.adresse} — Tél : ${p.telephone}</p>
+  <h1 style="color:#d97706;margin-top:8px">FICHE SAV</h1></div>
+  <table><tr><th>N° SAV</th><td>${s.id}</td><th>Date</th><td>${s.dateOuverture}</td></tr></table>
+  <h2>Client & Matériel</h2>
+  <table><tr><th>Client</th><td>${s.nomClient}</td><th>Tél</th><td>${s.telephone||'—'}</td></tr>
+  <tr><th>Email</th><td colspan="3">${s.email||'—'}</td></tr><tr><th>N° Facture</th><td colspan="3">${s.numFacture||'Introuvable'}</td></tr></table>
+  <h2>Problème déclaré</h2><p style="padding:12px;background:#f9f9f9;border-radius:6px;min-height:40px">${s.motifRetour||'—'}</p>
+  <h2>Diagnostic & Prise en charge</h2>
+  <table><tr><th>Garantie</th><td>${s.priseGarantie||'—'}</td><th>Statut</th><td>${s.statut||'—'}</td></tr></table>
+  <p style="margin-top:8px;font-size:12px"><strong>Diagnostic :</strong> ${s.diagnostic||'À remplir'}</p>
+  ${s.notes?'<p style="margin-top:8px;font-size:12px"><strong>Notes :</strong> '+s.notes+'</p>':''}
+  <div class="sig"><div class="sig-line">Technicien</div><div class="sig-line">Client (Accord)</div></div>
+  <div class="footer">SIRET : ${p.siret} — TVA non applicable, art. 293B du CGI</div></body></html>`);
   w.document.close();w.print();
 }
 
-// ═══ CATALOGUE ═══
+// ═══════════════════════════════════════════════════════════
+// CATALOGUE PIÈCES
+// ═══════════════════════════════════════════════════════════
 function renderCatalogue(){
   const cats=[...new Set(D.cataloguePieces.map(p=>p.cat))];const ac=D.cataloguePieces.filter(p=>stockAlert(p)).length;
   return `<div class="fade-up">
@@ -718,24 +917,33 @@ function renderCatalogue(){
       <div style="display:flex;gap:8px"><div class="search-box"><i class="fa-solid fa-search"></i><input id="searchCat" placeholder="Filtrer..." oninput="filterTable('catTable',this.value)"></div>
       <button class="btn btn-primary" onclick="openPieceForm()"><i class="fa-solid fa-plus"></i> Ajouter</button></div>
     </div>
-    ${cats.map(cat=>'<div class="card" style="padding:0;overflow:hidden;margin-bottom:16px"><div style="padding:12px 16px;background:var(--bg2);border-bottom:1px solid var(--border);font-weight:600;font-size:13px;color:var(--accent)">'+cat+'</div><div style="overflow-x:auto"><table class="catTable"><thead><tr><th>Réf.</th><th>Désignation</th><th>Marque</th><th>Type</th><th>Stock</th><th>Achat</th><th>Vente</th><th>Marge</th><th>Actions</th></tr></thead><tbody>'+
-    D.cataloguePieces.filter(p=>p.cat===cat).map(p=>'<tr'+(stockAlert(p)?' style="background:rgba(239,68,68,.05)"':'')+'><td style="font-weight:600;color:var(--accent)">'+p.ref+'</td><td>'+p.nom+'</td><td>'+p.marque+'</td><td style="color:var(--muted)">'+p.type+'</td><td>'+(stockAlert(p)?'<span style="color:var(--danger);font-weight:700">'+p.stock+'/'+p.stockMini+' ⚠️</span>':p.stock+'/'+p.stockMini)+'</td><td>'+fmt(p.prixAchat)+'</td><td style="font-weight:600">'+fmt(p.prixVente)+'</td><td>'+marge(p)+'%</td><td><button class="btn btn-secondary btn-sm" onclick="openPieceForm(\''+p.ref+'\')"><i class="fa-solid fa-pen"></i></button><button class="btn btn-danger btn-sm" onclick="deleteItem(\'cataloguePieces\',\'ref\',\''+p.ref+'\',\'Pièce\')" style="margin-left:4px"><i class="fa-solid fa-trash"></i></button></td></tr>').join('')+
-    '</tbody></table></div></div>').join('')}</div>';
+    ${cats.map(cat=>`<div class="card" style="padding:0;overflow:hidden;margin-bottom:16px">
+      <div style="padding:12px 16px;background:var(--bg2);border-bottom:1px solid var(--border);font-weight:600;font-size:13px;color:var(--accent)">${cat}</div>
+      <div style="overflow-x:auto"><table class="catTable"><thead><tr><th>Réf.</th><th>Désignation</th><th>Marque</th><th>Type</th><th>Stock</th><th>Achat</th><th>Vente</th><th>Marge</th><th>Actions</th></tr></thead><tbody>
+      ${D.cataloguePieces.filter(p=>p.cat===cat).map(p=>`<tr${stockAlert(p)?' style="background:rgba(239,68,68,.05)"':''}>
+        <td style="font-weight:600;color:var(--accent)">${p.ref}</td><td>${p.nom}</td><td>${p.marque}</td><td style="color:var(--muted)">${p.type}</td>
+        <td>${stockAlert(p)?`<span style="color:var(--danger);font-weight:700">${p.stock}/${p.stockMini} ⚠️</span>`:`${p.stock}/${p.stockMini}`}</td>
+        <td>${fmt(p.prixAchat)}</td><td style="font-weight:600">${fmt(p.prixVente)}</td><td>${marge(p)}%</td>
+        <td><button class="btn btn-secondary btn-sm" onclick="openPieceForm('${p.ref}')"><i class="fa-solid fa-pen"></i></button>
+        <button class="btn btn-danger btn-sm" onclick="deleteItem('cataloguePieces','ref','${p.ref}','Pièce')" style="margin-left:4px"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('')}
+      </tbody></table></div></div>`).join('')}</div>`;
 }
 function openPieceForm(ref){
   const p=ref?getPieceByRef(ref):{ref:'',nom:'',marque:'',type:'',stock:0,stockMini:1,prixAchat:0,prixVente:0,fournisseur:'',cat:'PNEUS'};
-  openModal(`<h3>${ref?'Modifier '+ref:'Nouvelle pièce'}</h3><div class="form-grid">
-    <div class="form-group"><label>Référence</label><input id="fPcRef" value="${p.ref}" ${ref?'readonly style="opacity:.6"':''}></div>
-    <div class="form-group"><label>Catégorie</label><select id="fPcCat">${['PNEUS','FREINAGE','TRANSMISSION','ROUES & ACCESSOIRES'].map(c=>'<option value="'+c+'" '+(p.cat===c?'selected':'')+'>'+c+'</option>').join('')}</select></div>
-    <div class="form-group full"><label>Désignation</label><input id="fPcNom" value="${p.nom}"></div>
-    <div class="form-group"><label>Marque</label><input id="fPcMarque" value="${p.marque}"></div>
-    <div class="form-group"><label>Type</label><input id="fPcType" value="${p.type}"></div>
-    <div class="form-group"><label>Stock</label><input id="fPcStock" type="number" value="${p.stock}" min="0"></div>
-    <div class="form-group"><label>Stock mini</label><input id="fPcMini" type="number" value="${p.stockMini}" min="0"></div>
-    <div class="form-group"><label>Prix achat</label><input id="fPcAchat" type="number" value="${p.prixAchat}" min="0" step="0.5"></div>
-    <div class="form-group"><label>Prix vente</label><input id="fPcVente" type="number" value="${p.prixVente}" min="0" step="0.5"></div>
-    <div class="form-group"><label>Fournisseur</label><input id="fPcFour" value="${p.fournisseur}"></div>
-    </div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+  openModal(`<h3>${ref?'Modifier '+ref:'Nouvelle pièce'}</h3>
+    <div class="form-grid">
+      <div class="form-group"><label>Référence</label><input id="fPcRef" value="${p.ref}" ${ref?'readonly style="opacity:.6"':''}></div>
+      <div class="form-group"><label>Catégorie</label><select id="fPcCat">${['PNEUS','FREINAGE','TRANSMISSION','ROUES & ACCESSOIRES'].map(c=>`<option value="${c}" ${p.cat===c?'selected':''}>${c}</option>`).join('')}</select></div>
+      <div class="form-group full"><label>Désignation</label><input id="fPcNom" value="${p.nom}"></div>
+      <div class="form-group"><label>Marque</label><input id="fPcMarque" value="${p.marque}"></div>
+      <div class="form-group"><label>Type</label><input id="fPcType" value="${p.type}"></div>
+      <div class="form-group"><label>Stock</label><input id="fPcStock" type="number" value="${p.stock}" min="0"></div>
+      <div class="form-group"><label>Stock mini</label><input id="fPcMini" type="number" value="${p.stockMini}" min="0"></div>
+      <div class="form-group"><label>Prix achat</label><input id="fPcAchat" type="number" value="${p.prixAchat}" min="0" step="0.5"></div>
+      <div class="form-group"><label>Prix vente</label><input id="fPcVente" type="number" value="${p.prixVente}" min="0" step="0.5"></div>
+      <div class="form-group"><label>Fournisseur</label><input id="fPcFour" value="${p.fournisseur}"></div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:20px"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
     <button class="btn btn-primary" onclick="savePiece('${ref||''}')">${ref?'Enregistrer':'Ajouter'}</button></div>`);
 }
 function savePiece(ref){
@@ -746,52 +954,78 @@ function savePiece(ref){
   saveData();closeModal();renderPage();
 }
 
-// ═══ TARIFS ═══
+// ═══════════════════════════════════════════════════════════
+// GRILLE TARIFAIRE (lecture seule)
+// ═══════════════════════════════════════════════════════════
 function renderTarifs(){
   const cats=[...new Set(D.grilleTarifaire.map(t=>t.cat))];
   return `<div class="fade-up">
     <h1 style="font-size:24px;font-weight:700;margin-bottom:4px">Grille tarifaire</h1>
     <p style="color:var(--muted);font-size:13px;margin-bottom:20px">Lens-Liévin (62) · Déplacement inclus · +1 €/km au-delà</p>
-    ${cats.map(cat=>'<div class="card" style="padding:0;overflow:hidden;margin-bottom:16px"><div style="padding:12px 16px;background:var(--bg2);border-bottom:1px solid var(--border);font-weight:600;font-size:13px">'+cat+'</div><div style="overflow-x:auto"><table><thead><tr><th>Code</th><th>Nom</th><th>Accroche</th><th>Prix TTC</th><th>Barré</th><th>Temps</th><th>Détail</th></tr></thead><tbody>'+
-    D.grilleTarifaire.filter(t=>t.cat===cat).map(t=>'<tr><td style="font-weight:600;color:var(--accent)">'+t.code+'</td><td style="font-weight:600">'+t.nom+'</td><td style="color:var(--muted)">'+t.accroche+'</td><td style="font-weight:700;font-size:15px">'+(t.prix<0?t.prix+'%':fmt(t.prix))+'</td><td>'+(t.prixBarre?'<span style="text-decoration:line-through;color:var(--muted)">'+fmt(t.prixBarre)+'</span>':'—')+'</td><td>'+(t.temps?t.temps+' min':'—')+'</td><td style="max-width:250px;font-size:12px;color:var(--muted)">'+t.detail+'</td></tr>').join('')+
-    '</tbody></table></div></div>').join('')}
-    <div class="card" style="padding:0;overflow:hidden;margin-top:24px"><div style="padding:12px 16px;background:var(--bg2);border-bottom:1px solid var(--border);font-weight:600;font-size:13px">Suppléments</div><div style="overflow-x:auto"><table><thead><tr><th>Code</th><th>Cat.</th><th>Situation</th><th>Suppl. MO</th><th>Remarque</th></tr></thead><tbody>'+
-    D.supplements.map(s=>'<tr><td style="font-weight:600;color:var(--accent)">'+s.code+'</td><td>'+s.cat+'</td><td>'+s.situation+'</td><td style="font-weight:600">'+(s.supplMO>0?'+'+fmt(s.supplMO):'Sur devis')+'</td><td style="color:var(--muted);font-size:12px">'+s.remarque+'</td></tr>').join('')+
-    '</tbody></table></div></div>
-    <div class="card" style="margin-top:16px"><h3 style="font-size:14px;margin-bottom:12px"><i class="fa-solid fa-map-location-dot" style="color:var(--accent);margin-right:8px"></i>Zones</h3>
-    <table><thead><tr><th>Zone</th><th>Distance</th><th>Frais ≥ '+D.parametres.minFacturation+'€</th><th>Frais < '+D.parametres.minFacturation+'€</th><th></th></tr></thead><tbody>'+
-    D.zones.map(z=>'<tr><td style="font-weight:600">'+z.nom+'</td><td>'+z.min+'-'+z.max+' km</td><td>'+(z.fraisGe45===0?'<span style="color:var(--success)">GRATUIT</span>':fmt(z.fraisGe45))+'</td><td>'+fmt(z.fraisLt45)+'</td><td style="color:var(--muted)">'+z.desc+'</td></tr>').join('')+
-    '</tbody></table></div></div>`;
+    ${cats.map(cat=>`<div class="card" style="padding:0;overflow:hidden;margin-bottom:16px">
+      <div style="padding:12px 16px;background:var(--bg2);border-bottom:1px solid var(--border);font-weight:600;font-size:13px">${cat}</div>
+      <div style="overflow-x:auto"><table><thead><tr><th>Code</th><th>Nom</th><th>Accroche</th><th>Prix TTC</th><th>Barré</th><th>Temps</th><th>Détail</th></tr></thead><tbody>
+      ${D.grilleTarifaire.filter(t=>t.cat===cat).map(t=>`<tr>
+        <td style="font-weight:600;color:var(--accent)">${t.code}</td><td style="font-weight:600">${t.nom}</td><td style="color:var(--muted)">${t.accroche}</td>
+        <td style="font-weight:700;font-size:15px">${t.prix<0?t.prix+'%':fmt(t.prix)}</td>
+        <td>${t.prixBarre?'<span style="text-decoration:line-through;color:var(--muted)">'+fmt(t.prixBarre)+'</span>':'—'}</td>
+        <td>${t.temps?t.temps+' min':'—'}</td><td style="max-width:250px;font-size:12px;color:var(--muted)">${t.detail}</td></tr>`).join('')}
+      </tbody></table></div></div>`).join('')}
+    <div class="card" style="padding:0;overflow:hidden;margin-top:24px">
+      <div style="padding:12px 16px;background:var(--bg2);border-bottom:1px solid var(--border);font-weight:600;font-size:13px">Suppléments</div>
+      <div style="overflow-x:auto"><table><thead><tr><th>Code</th><th>Cat.</th><th>Situation</th><th>Suppl. MO</th><th>Remarque</th></tr></thead><tbody>
+      ${D.supplements.map(s=>`<tr><td style="font-weight:600;color:var(--accent)">${s.code}</td><td>${s.cat}</td><td>${s.situation}</td>
+        <td style="font-weight:600">${s.supplMO>0?'+'+fmt(s.supplMO):'Sur devis'}</td><td style="color:var(--muted);font-size:12px">${s.remarque}</td></tr>`).join('')}
+      </tbody></table></div></div>
+    <div class="card" style="margin-top:16px">
+      <h3 style="font-size:14px;margin-bottom:12px"><i class="fa-solid fa-map-location-dot" style="color:var(--accent);margin-right:8px"></i>Zones</h3>
+      <table><thead><tr><th>Zone</th><th>Distance</th><th>Frais ≥ ${D.parametres.minFacturation}€</th><th>Frais < ${D.parametres.minFacturation}€</th><th></th></tr></thead><tbody>
+      ${D.zones.map(z=>`<tr><td style="font-weight:600">${z.nom}</td><td>${z.min}-${z.max} km</td><td>${z.fraisGe45===0?'<span style="color:var(--success)">GRATUIT</span>':fmt(z.fraisGe45)}</td><td>${fmt(z.fraisLt45)}</td><td style="color:var(--muted)">${z.desc}</td></tr>`).join('')}
+      </tbody></table></div></div>`;
 }
 
-// ═══ TRÉSORERIE ═══
+// ═══════════════════════════════════════════════════════════
+// TRÉSORERIE
+// ═══════════════════════════════════════════════════════════
 function renderTresorerie(){
-  const tCA=D.tresorerie.reduce((s,t)=>s+t.caMO+t.caPieces+t.depl,0);
-  const tCh=D.tresorerie.reduce((s,t)=>s+t.chargesCarburant+t.chargesPieces+t.chargesTel+t.chargesAssurance,0);
-  const tBen=tCA-tCh;const tARE=D.tresorerie.reduce((s,t)=>s+(t.are||0),0);
+  const totCA=D.tresorerie.reduce((s,t)=>s+t.caMO+t.caPieces+t.depl,0);
+  const totCh=D.tresorerie.reduce((s,t)=>s+t.chargesCarburant+t.chargesPieces+t.chargesTel+t.chargesAssurance,0);
+  const totBen=totCA-totCh;const totARE=D.tresorerie.reduce((s,t)=>s+(t.are||0),0);
   return `<div class="fade-up">
     <h1 style="font-size:24px;font-weight:700;margin-bottom:4px">Trésorerie 2026</h1>
-    <p style="color:var(--muted);font-size:13px;margin-bottom:20px">Seuil : ${fmt(D.parametres.seuilRentabilite)}/mois</p>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:20px">Seuil rentabilité : ${fmt(D.parametres.seuilRentabilite)}/mois</p>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px">
-      <div class="kpi"><div style="font-size:12px;color:var(--muted);margin-bottom:6px">Recettes annuel</div><div style="font-size:22px;font-weight:700;color:var(--success);font-family:'Space Grotesk'">${fmt(tCA)}</div></div>
-      <div class="kpi"><div style="font-size:12px;color:var(--muted);margin-bottom:6px">Charges annuel</div><div style="font-size:22px;font-weight:700;color:var(--danger);font-family:'Space Grotesk'">${fmt(tCh)}</div></div>
-      <div class="kpi"><div style="font-size:12px;color:var(--muted);margin-bottom:6px">Bénéfice net</div><div style="font-size:22px;font-weight:700;color:${tBen>=0?'var(--success)':'var(--danger)'};font-family:'Space Grotesk'">${fmt(tBen)}</div></div>
+      <div class="kpi"><div style="font-size:12px;color:var(--muted);margin-bottom:6px">Recettes annuel</div><div style="font-size:22px;font-weight:700;color:var(--success);font-family:'Space Grotesk'">${fmt(totCA)}</div></div>
+      <div class="kpi"><div style="font-size:12px;color:var(--muted);margin-bottom:6px">Charges annuel</div><div style="font-size:22px;font-weight:700;color:var(--danger);font-family:'Space Grotesk'">${fmt(totCh)}</div></div>
+      <div class="kpi"><div style="font-size:12px;color:var(--muted);margin-bottom:6px">Bénéfice net</div><div style="font-size:22px;font-weight:700;color:${totBen>=0?'var(--success)':'var(--danger)'};font-family:'Space Grotesk'">${fmt(totBen)}</div></div>
     </div>
     <div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto">
       <table><thead><tr><th>Mois</th><th>CA MO</th><th>CA Pièces</th><th>Dépl.</th><th style="background:rgba(16,185,129,.1);color:var(--success)">Recettes</th><th>Carb.</th><th>Pièces ach.</th><th>Tél</th><th>Ass.</th><th style="background:rgba(239,68,68,.1);color:var(--danger)">Charges</th><th>Bénéfice</th><th>ARE</th><th>Revenu</th><th>Obj.</th></tr></thead><tbody>
       ${D.tresorerie.map(t=>{const r=t.caMO+t.caPieces+t.depl;const c=t.chargesCarburant+t.chargesPieces+t.chargesTel+t.chargesAssurance;const b=r-c;const rv=b+(t.are||0);
-      return '<tr><td style="font-weight:600">'+t.mois+'</td><td>'+fmt(t.caMO)+'</td><td>'+fmt(t.caPieces)+'</td><td>'+fmt(t.depl)+'</td><td style="font-weight:600;color:var(--success)">'+fmt(r)+'</td><td>'+fmt(t.chargesCarburant)+'</td><td>'+fmt(t.chargesPieces)+'</td><td>'+fmt(t.chargesTel)+'</td><td>'+fmt(t.chargesAssurance)+'</td><td style="font-weight:600;color:var(--danger)">'+fmt(c)+'</td><td style="font-weight:700;color:'+(b>=0?'var(--success)':'var(--danger)')+'">'+fmt(b)+'</td><td>'+fmt(t.are||0)+'</td><td style="font-weight:600">'+fmt(rv)+'</td><td>'+(r>=D.parametres.seuilRentabilite?'<span class="badge badge-success">OK</span>':'<span class="badge badge-danger">Non</span>')+'</td></tr>';}).join('')}
-      <tr style="background:var(--bg2);font-weight:700"><td>TOTAL</td><td>${fmt(D.tresorerie.reduce((s,t)=>s+t.caMO,0))}</td><td>${fmt(D.tresorerie.reduce((s,t)=>s+t.caPieces,0))}</td><td>${fmt(D.tresorerie.reduce((s,t)=>s+t.depl,0))}</td><td style="color:var(--success)">${fmt(tCA)}</td><td>${fmt(D.tresorerie.reduce((s,t)=>s+t.chargesCarburant,0))}</td><td>${fmt(D.tresorerie.reduce((s,t)=>s+t.chargesPieces,0))}</td><td>${fmt(D.tresorerie.reduce((s,t)=>s+t.chargesTel,0))}</td><td>${fmt(D.tresorerie.reduce((s,t)=>s+t.chargesAssurance,0))}</td><td style="color:var(--danger)">${fmt(tCh)}</td><td style="color:${tBen>=0?'var(--success)':'var(--danger)'}">${fmt(tBen)}</td><td>${fmt(tARE)}</td><td>${fmt(tBen+tARE)}</td><td>${tCA>=D.parametres.seuilRentabilite*12?'<span class="badge badge-success">OK</span>':'<span class="badge badge-danger">Non</span>'}</td></tr>
+      return `<tr><td style="font-weight:600">${t.mois}</td><td>${fmt(t.caMO)}</td><td>${fmt(t.caPieces)}</td><td>${fmt(t.depl)}</td>
+        <td style="font-weight:600;color:var(--success)">${fmt(r)}</td><td>${fmt(t.chargesCarburant)}</td><td>${fmt(t.chargesPieces)}</td><td>${fmt(t.chargesTel)}</td><td>${fmt(t.chargesAssurance)}</td>
+        <td style="font-weight:600;color:var(--danger)">${fmt(c)}</td><td style="font-weight:700;color:${b>=0?'var(--success)':'var(--danger)'}">${fmt(b)}</td>
+        <td>${fmt(t.are||0)}</td><td style="font-weight:600">${fmt(rv)}</td>
+        <td>${r>=D.parametres.seuilRentabilite?'<span class="badge badge-success">OK</span>':'<span class="badge badge-danger">Non</span>'}</td></tr>`;}).join('')}
+      <tr style="background:var(--bg2);font-weight:700"><td>TOTAL</td>
+        <td>${fmt(D.tresorerie.reduce((s,t)=>s+t.caMO,0))}</td><td>${fmt(D.tresorerie.reduce((s,t)=>s+t.caPieces,0))}</td><td>${fmt(D.tresorerie.reduce((s,t)=>s+t.depl,0))}</td>
+        <td style="color:var(--success)">${fmt(totCA)}</td><td>${fmt(D.tresorerie.reduce((s,t)=>s+t.chargesCarburant,0))}</td><td>${fmt(D.tresorerie.reduce((s,t)=>s+t.chargesPieces,0))}</td>
+        <td>${fmt(D.tresorerie.reduce((s,t)=>s+t.chargesTel,0))}</td><td>${fmt(D.tresorerie.reduce((s,t)=>s+t.chargesAssurance,0))}</td>
+        <td style="color:var(--danger)">${fmt(totCh)}</td><td style="color:${totBen>=0?'var(--success)':'var(--danger)'}">${fmt(totBen)}</td>
+        <td>${fmt(totARE)}</td><td>${fmt(totBen+totARE)}</td><td>${totCA>=D.parametres.seuilRentabilite*12?'<span class="badge badge-success">OK</span>':'<span class="badge badge-danger">Non</span>'}</td></tr>
       </tbody></table></div></div>
-    <div class="card" style="margin-top:16px"><h3 style="font-size:14px;margin-bottom:12px"><i class="fa-solid fa-pen" style="color:var(--accent);margin-right:8px"></i>Modifier les charges</h3>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">
-      <div class="form-group"><label>Mois</label><select id="fTrMois">${D.tresorerie.map((t,i)=>'<option value="'+i+'">'+t.mois+'</option>').join('')}</select></div>
-      <div class="form-group"><label>Carburant</label><input id="fTrCarb" type="number" min="0" step="10" value="0"></div>
-      <div class="form-group"><label>Pièces achetées</label><input id="fTrPieces" type="number" min="0" step="10" value="0"></div>
-      <div class="form-group"><label>Tél/Internet</label><input id="fTrTel" type="number" min="0" step="5" value="30"></div>
-      <div class="form-group"><label>Assurance</label><input id="fTrAss" type="number" min="0" step="5" value="30"></div>
-      <div class="form-group"><label>ARE</label><input id="fTrARE" type="number" min="0" step="50" value="0"></div>
-    </div><button class="btn btn-primary" style="margin-top:12px" onclick="saveTresorerieCharges()"><i class="fa-solid fa-save"></i> Enregistrer</button></div></div>`;
+    <div class="card" style="margin-top:16px">
+      <h3 style="font-size:14px;margin-bottom:12px"><i class="fa-solid fa-pen" style="color:var(--accent);margin-right:8px"></i>Modifier les charges</h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">
+        <div class="form-group"><label>Mois</label><select id="fTrMois">${D.tresorerie.map((t,i)=>`<option value="${i}">${t.mois}</option>`).join('')}</select></div>
+        <div class="form-group"><label>Carburant</label><input id="fTrCarb" type="number" min="0" step="10" value="0"></div>
+        <div class="form-group"><label>Pièces achetées</label><input id="fTrPieces" type="number" min="0" step="10" value="0"></div>
+        <div class="form-group"><label>Tél/Internet</label><input id="fTrTel" type="number" min="0" step="5" value="30"></div>
+        <div class="form-group"><label>Assurance</label><input id="fTrAss" type="number" min="0" step="5" value="30"></div>
+        <div class="form-group"><label>ARE</label><input id="fTrARE" type="number" min="0" step="50" value="0"></div>
+      </div>
+      <button class="btn btn-primary" style="margin-top:12px" onclick="saveTresorerieCharges()"><i class="fa-solid fa-save"></i> Enregistrer</button>
+    </div></div>`;
 }
 function saveTresorerieCharges(){
   const i=parseInt($('#fTrMois').value);const t=D.tresorerie[i];if(!t)return;
@@ -800,41 +1034,55 @@ function saveTresorerieCharges(){
   t.are=parseFloat($('#fTrARE').value)||0;saveData();renderPage();toast('Charges mises à jour');
 }
 
-// ═══ PARAMÈTRES ═══
+// ═══════════════════════════════════════════════════════════
+// PARAMÈTRES
+// ═══════════════════════════════════════════════════════════
 function renderParametres(){
   const p=D.parametres;
   return `<div class="fade-up">
     <h1 style="font-size:24px;font-weight:700;margin-bottom:4px">Paramètres</h1>
     <p style="color:var(--muted);font-size:13px;margin-bottom:24px">Modifications appliquées partout automatiquement</p>
-    <div class="card" style="margin-bottom:16px"><h3 style="font-size:15px;margin-bottom:16px"><i class="fa-solid fa-building" style="color:var(--accent);margin-right:8px"></i>Entreprise</h3><div class="form-grid">
-      <div class="form-group"><label>Nom</label><input id="pNom" value="${p.nom}"></div>
-      <div class="form-group"><label>Propriétaire</label><input id="pProp" value="${p.proprietaire}"></div>
-      <div class="form-group"><label>Statut</label><input id="pStatut" value="${p.statut}"></div>
-      <div class="form-group"><label>Adresse</label><input id="pAddr" value="${p.adresse}"></div>
-      <div class="form-group"><label>Zone</label><input id="pZone" value="${p.zone}"></div>
-      <div class="form-group"><label>SIRET ${p.siret.includes('cours')?'<span style="color:var(--danger);font-size:11px">(à mettre à jour)</span>':''}</label><input id="pSiret" value="${p.siret}"></div>
-      <div class="form-group"><label>Téléphone</label><input id="pTel" value="${p.telephone}"></div>
-      <div class="form-group"><label>Email</label><input id="pEmail" value="${p.email}"></div>
-    </div></div>
-    <div class="card" style="margin-bottom:16px"><h3 style="font-size:15px;margin-bottom:16px"><i class="fa-solid fa-map-pin" style="color:var(--accent);margin-right:8px"></i>Déplacement</h3><div class="form-grid">
-      <div class="form-group"><label>Zone 1 km max</label><input id="pZ1km" type="number" value="${p.zone1Km}" min="0"></div>
-      <div class="form-group"><label>Zone 1 frais si < min</label><input id="pZ1f" type="number" value="${p.zone1Frais}" min="0"></div>
-      <div class="form-group"><label>Zone 2 frais</label><input id="pZ2f" type="number" value="${p.zone2Frais}" min="0"></div>
-      <div class="form-group"><label>Zone 3 frais</label><input id="pZ3f" type="number" value="${p.zone3Frais}" min="0"></div>
-      <div class="form-group"><label>Zone 4 frais</label><input id="pZ4f" type="number" value="${p.zone4Frais}" min="0"></div>
-      <div class="form-group"><label>Minimum facturation</label><input id="pMin" type="number" value="${p.minFacturation}" min="0" step="5"></div>
-    </div></div>
-    <div class="card" style="margin-bottom:16px"><h3 style="font-size:15px;margin-bottom:16px"><i class="fa-solid fa-bullseye" style="color:var(--accent);margin-right:8px"></i>Objectifs</h3><div class="form-grid">
-      <div class="form-group"><label>Seuil rentabilité /mois</label><input id="pSeuil" type="number" value="${p.seuilRentabilite}" min="0" step="50"></div>
-      <div class="form-group"><label>Objectif CA An1 /mois</label><input id="pCA1" type="number" value="${p.objectifCA1}" min="0" step="100"></div>
-      <div class="form-group"><label>Objectif CA An2 /mois</label><input id="pCA2" type="number" value="${p.objectifCA2}" min="0" step="100"></div>
-    </div></div>
-    <div class="card" style="margin-bottom:16px"><h3 style="font-size:15px;margin-bottom:16px"><i class="fa-solid fa-shield-halved" style="color:var(--accent);margin-right:8px"></i>Garanties</h3><div class="form-grid">
-      <div class="form-group"><label>Garantie MO (mois)</label><input id="pGarMO" type="number" value="${p.garantieMO}" min="0"></div>
-      <div class="form-group"><label>Garantie pièces (ans)</label><input id="pGarP" type="number" value="${p.garantiePieces}" min="0"></div>
-      <div class="form-group"><label>Validité devis (jours)</label><input id="pValDev" type="number" value="${p.validiteDevis}" min="1"></div>
-      <div class="form-group"><label>Annulation <24h (€)</label><input id="pAnnul" type="number" value="${p.annulationFrais}" min="0"></div>
-    </div></div>
+    <div class="card" style="margin-bottom:16px">
+      <h3 style="font-size:15px;margin-bottom:16px"><i class="fa-solid fa-building" style="color:var(--accent);margin-right:8px"></i>Entreprise</h3>
+      <div class="form-grid">
+        <div class="form-group"><label>Nom</label><input id="pNom" value="${p.nom}"></div>
+        <div class="form-group"><label>Propriétaire</label><input id="pProp" value="${p.proprietaire}"></div>
+        <div class="form-group"><label>Statut</label><input id="pStatut" value="${p.statut}"></div>
+        <div class="form-group"><label>Adresse</label><input id="pAddr" value="${p.adresse}"></div>
+        <div class="form-group"><label>Zone</label><input id="pZone" value="${p.zone}"></div>
+        <div class="form-group"><label>SIRET ${p.siret.includes('cours')?'<span style="color:var(--danger);font-size:11px">(à mettre à jour)</span>':''}</label><input id="pSiret" value="${p.siret}"></div>
+        <div class="form-group"><label>Téléphone</label><input id="pTel" value="${p.telephone}"></div>
+        <div class="form-group"><label>Email</label><input id="pEmail" value="${p.email}"></div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <h3 style="font-size:15px;margin-bottom:16px"><i class="fa-solid fa-map-pin" style="color:var(--accent);margin-right:8px"></i>Déplacement</h3>
+      <div class="form-grid">
+        <div class="form-group"><label>Zone 1 km max</label><input id="pZ1km" type="number" value="${p.zone1Km}" min="0"></div>
+        <div class="form-group"><label>Zone 1 frais si < min</label><input id="pZ1f" type="number" value="${p.zone1Frais}" min="0"></div>
+        <div class="form-group"><label>Zone 2 frais</label><input id="pZ2f" type="number" value="${p.zone2Frais}" min="0"></div>
+        <div class="form-group"><label>Zone 3 frais</label><input id="pZ3f" type="number" value="${p.zone3Frais}" min="0"></div>
+        <div class="form-group"><label>Zone 4 frais</label><input id="pZ4f" type="number" value="${p.zone4Frais}" min="0"></div>
+        <div class="form-group"><label>Minimum facturation</label><input id="pMin" type="number" value="${p.minFacturation}" min="0" step="5"></div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <h3 style="font-size:15px;margin-bottom:16px"><i class="fa-solid fa-bullseye" style="color:var(--accent);margin-right:8px"></i>Objectifs</h3>
+      <div class="form-grid">
+        <div class="form-group"><label>Seuil rentabilité /mois</label><input id="pSeuil" type="number" value="${p.seuilRentabilite}" min="0" step="50"></div>
+        <div class="form-group"><label>Objectif CA An1 /mois</label><input id="pCA1" type="number" value="${p.objectifCA1}" min="0" step="100"></div>
+        <div class="form-group"><label>Objectif CA An2 /mois</label><input id="pCA2" type="number" value="${p.objectifCA2}" min="0" step="100"></div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <h3 style="font-size:15px;margin-bottom:16px"><i class="fa-solid fa-shield-halved" style="color:var(--accent);margin-right:8px"></i>Garanties</h3>
+      <div class="form-grid">
+        <div class="form-group"><label>Garantie MO (mois)</label><input id="pGarMO" type="number" value="${p.garantieMO}" min="0"></div>
+        <div class="form-group"><label>Garantie pièces (ans)</label><input id="pGarP" type="number" value="${p.garantiePieces}" min="0"></div>
+        <div class="form-group"><label>Validité devis (jours)</label><input id="pValDev" type="number" value="${p.validiteDevis}" min="1"></div>
+        <div class="form-group"><label>Annulation <24h (€)</label><input id="pAnnul" type="number" value="${p.annulationFrais}" min="0"></div>
+      </div>
+    </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-primary" onclick="saveParametres()"><i class="fa-solid fa-save"></i> Enregistrer</button>
       <button class="btn btn-danger" onclick="resetData()"><i class="fa-solid fa-rotate-left"></i> Réinitialiser</button>
@@ -859,7 +1107,9 @@ function saveParametres(){
   saveData();toast('Paramètres enregistrés');
 }
 function resetData(){
-  openModal('<h3>Réinitialiser ?</h3><p style="color:var(--danger);margin-bottom:16px">Toutes les données seront perdues. <strong>Irréversible.</strong></p><div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button><button class="btn btn-danger" onclick="localStorage.removeItem(STORE_KEY);localStorage.removeItem(GEO_CACHE_KEY);D=JSON.parse(JSON.stringify(DEFAULT_DATA));saveData();closeModal();renderPage();toast(\'Réinitialisé\')">Confirmer</button></div>');
+  openModal(`<h3>Réinitialiser ?</h3><p style="color:var(--danger);margin-bottom:16px">Toutes les données seront perdues. <strong>Irréversible.</strong></p>
+  <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+  <button class="btn btn-danger" onclick="localStorage.removeItem(STORE_KEY);localStorage.removeItem(GEO_CACHE_KEY);D=JSON.parse(JSON.stringify(DEFAULT_DATA));saveData();closeModal();renderPage();toast('Réinitialisé')">Confirmer</button></div>`);
 }
 function exportData(){
   const blob=new Blob([JSON.stringify(D,null,2)],{type:'application/json'});
@@ -873,7 +1123,9 @@ function importData(e){
   reader.readAsText(file);e.target.value='';
 }
 
-// ═══ INIT ═══
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
 loadData();
 renderPage();
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
